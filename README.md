@@ -6,7 +6,7 @@ Start backend
 ```bash
 cd backend
 go mod tidy
-go run main.go
+go run cmd/api/main.go
 ```
 
 Start frontend
