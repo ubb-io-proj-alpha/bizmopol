@@ -66,7 +66,9 @@ func main() {
     r := gin.Default()
 
     // Enable CORS for frontend
-    r.Use(cors.Default())
+    if cfg.AppEnvironment != "production" {
+        r.Use(cors.Default())
+    }
 
     api := r.Group("/api/v1")
     {
