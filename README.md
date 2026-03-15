@@ -19,5 +19,5 @@ npm run dev
 ## Automatic usage (recommended)
 Just run 
 ```bash
-docker compose -f docker-comopose.yml up
+docker compose up
 ```
