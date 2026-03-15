@@ -1,0 +1,22 @@
+root = "."
+tmp_dir = "build"
+
+[build]
+cmd = "./build.sh"
+bin = "./build/main"
+full_bin = "./build/main"
+include_ext = ["go", "mod"]
+exclude_dir = ["build"]
+delay = 1000
+
+[log]
+time = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true

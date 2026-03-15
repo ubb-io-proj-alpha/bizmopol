@@ -8,15 +8,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN mkdir -p /app/data
-
 COPY . .
 
-RUN if [ ! -f go.mod ]; then \
-        go mod init backend && \
-        go mod tidy; \
-    fi
+RUN go install github.com/air-verse/air@latest
+
+RUN go mod download
+RUN go mod tidy
 
 EXPOSE 8080
 
-CMD ["go", "run", "cmd/api/main.go"]
+CMD ["/root/go/bin/air", "-c", ".air.toml"]
+#CMD ["go", "run", "cmd/api/main.go"]
