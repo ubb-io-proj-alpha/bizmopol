@@ -1,6 +1,6 @@
 # bizmopol
 
-## Usage
+## Manual usage
 
 Start backend
 ```bash
@@ -14,4 +14,10 @@ Start frontend
 cd frontend
 npm install
 npm run dev
+```
+
+## Automatic usage (recommended)
+Just run 
+```bash
+docker compose -f docker-comopose.yml up
 ```
