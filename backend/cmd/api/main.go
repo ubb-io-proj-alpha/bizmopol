@@ -52,7 +52,7 @@ func main() {
         slog.Error("Failed to connect to database", "error", err)
     }
 
-    if err := db.AutoMigrate(&model.Test{}, &model.User{}); err != nil {
+    if err := db.AutoMigrate(&model.Test{}, &model.User{}, &model.Contact{}); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
 
@@ -68,10 +68,12 @@ func main() {
     authService := service.NewAuthService(userRepo, cfg.JWTSecret)
     authHandler := handler.NewAuthHandler(authService)
 
+    contactRepo := repository.NewContactRepository(db)
+    contactService := service.NewContactService(contactRepo)
+    contactHandler := handler.NewContactHandler(contactService)
+
     r := gin.Default()
 
-    // tutaj usunalem warunek
-    // ze ENV musi byc prod
     r.Use(cors.Default())
 
     api := r.Group("/api/v1")
@@ -87,6 +89,16 @@ func main() {
         {
             tests.GET("/", testHandler.GetAll)
             tests.POST("/add", testHandler.Create)
+        }
+
+        contacts := api.Group("/contacts")
+        contacts.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            contacts.GET("/", contactHandler.List)
+            contacts.POST("/", contactHandler.Create)
+            contacts.GET("/:id", contactHandler.GetByID)
+            contacts.PUT("/:id", contactHandler.Update)
+            contacts.DELETE("/:id", contactHandler.Delete)
         }
     }
 
@@ -120,4 +132,3 @@ func main() {
 
     slog.Info("Server exiting")
 }
-

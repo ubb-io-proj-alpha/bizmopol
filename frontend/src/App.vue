@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import CrmView from './components/CrmView.vue'
 
 const TOKEN_KEY = "jwt_token"
 
@@ -172,12 +173,7 @@ const currentView = ref("market")
             </section>
 
             <section v-if="currentView === 'crm'" class="view-section">
-                <h1>CRM — Zarządzanie kontaktami</h1>
-                <div class="grid-fill">
-                    <div class="feature-card"><h3>Baza</h3><p>Centralna baza kontaktów i smart lists</p></div>
-                    <div class="feature-card"><h3>Pipeline</h3><p>Statusy leadów i etapy sprzedaży</p></div>
-                    <div class="feature-card"><h3>Historia</h3><p>Historia kontaktów, notatki i zadania</p></div>
-                </div>
+                <CrmView :auth-fetch="authFetch" />
             </section>
 
             <section v-if="currentView === 'comm'" class="view-section">
