@@ -3,9 +3,12 @@ import { ref, onMounted } from 'vue'
 
 const message = ref('Loading...')
 onMounted(async () => {
-  const response = await fetch('/api/hello')
-  const data = await response.json()
-  message.value = data.message
+  const response = await fetch('/api/v1/tests/');
+  if (response.ok) {
+    message.value = "communication is working";
+  } else {
+    message.value = "communication is not working";
+  }
 })
 </script>
 
