@@ -1,0 +1,22 @@
+root = "."
+tmp_dir = "build"
+
+[build]
+cmd = "rm -f ./build/.env && cp .env ./build/.env && go build -o ./build/main ./cmd/api/main.go"
+bin = "./build/main"
+full_bin = "./build/main"
+include_ext = ["go"]
+exclude_dir = ["build"]
+delay = 1000
+
+[log]
+time = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true

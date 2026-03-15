@@ -56,7 +56,7 @@ func main() {
         slog.Error("Failed to migrate database", "error", err)
     }
 
-    if cfg.AppEnvironment == "development") {
+    if cfg.AppEnvironment == "development" {
         config.SeedDatabase(db)
     }
 

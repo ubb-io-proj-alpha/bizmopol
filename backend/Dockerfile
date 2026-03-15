@@ -8,10 +8,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN mkdir -p /app/data
-
 COPY . .
+
+RUN go install github.com/air-verse/air@latest
 
 EXPOSE 8080
 
-CMD ["go", "run", "cmd/api/main.go"]
+CMD ["/root/go/bin/air", "-c", ".air.toml"]
+#CMD ["go", "run", "cmd/api/main.go"]
