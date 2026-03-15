@@ -6,6 +6,7 @@ import (
     "time"
 
     "github.com/golang-jwt/jwt/v5"
+    "github.com/google/uuid"
     "golang.org/x/crypto/bcrypt"
 
     "backend/internal/dto"
@@ -14,7 +15,7 @@ import (
 )
 
 var (
-    ErrUserExists       = errors.New("user_already_exists")
+    ErrUserExists         = errors.New("user_already_exists")
     ErrInvalidCredentials = errors.New("invalid_credentials")
 )
 
@@ -47,9 +48,11 @@ func (s *authService) Register(ctx context.Context, input dto.RegisterRequest) (
     }
 
     user := &model.User{
+        ID:           uuid.NewString(),
         Email:        input.Email,
         PasswordHash: string(hash),
         Name:         input.Name,
+        Role:         model.RoleUser,
     }
     if err := s.repo.Create(ctx, user); err != nil {
         return nil, ErrInternal
@@ -66,6 +69,7 @@ func (s *authService) Register(ctx context.Context, input dto.RegisterRequest) (
             ID:        user.ID,
             Email:     user.Email,
             Name:      user.Name,
+            Role:      string(user.Role),
             CreatedAt: user.CreatedAt,
         },
     }, nil
@@ -95,6 +99,7 @@ func (s *authService) Login(ctx context.Context, input dto.LoginRequest) (*dto.A
             ID:        user.ID,
             Email:     user.Email,
             Name:      user.Name,
+            Role:      string(user.Role),
             CreatedAt: user.CreatedAt,
         },
     }, nil
@@ -104,6 +109,7 @@ func (s *authService) generateToken(user *model.User) (string, error) {
     claims := jwt.MapClaims{
         "sub":   user.ID,
         "email": user.Email,
+        "role":  user.Role,
         "exp":   time.Now().Add(72 * time.Hour).Unix(),
     }
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

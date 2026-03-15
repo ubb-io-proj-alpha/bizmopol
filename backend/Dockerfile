@@ -12,6 +12,9 @@ COPY . .
 
 RUN go install github.com/air-verse/air@latest
 
+RUN go mod download
+RUN go mod tidy
+
 EXPOSE 8080
 
 CMD ["/root/go/bin/air", "-c", ".air.toml"]

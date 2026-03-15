@@ -14,13 +14,14 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-    Token string      `json:"token"`
+    Token string       `json:"token"`
     User  UserResponse `json:"user"`
 }
 
 type UserResponse struct {
-    ID        uint      `json:"id"`
+    ID        string    `json:"id"`
     Email     string    `json:"email"`
     Name      string    `json:"name"`
+    Role      string    `json:"role"`
     CreatedAt time.Time `json:"created_at"`
 }

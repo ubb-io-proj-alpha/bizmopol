@@ -35,14 +35,15 @@ func JWTAuth(secret string) gin.HandlerFunc {
             return
         }
 
-        sub, ok := claims["sub"].(float64)
+        sub, ok := claims["sub"].(string)
         if !ok {
             c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid subject"})
             return
         }
 
-        c.Set("userID", uint(sub))
+        c.Set("userID", sub)
         c.Set("userEmail", claims["email"])
+        c.Set("userRole", claims["role"])
         c.Next()
     }
 }

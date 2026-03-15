@@ -2,10 +2,10 @@ root = "."
 tmp_dir = "build"
 
 [build]
-cmd = "rm -f ./build/.env && cp .env ./build/.env && go build -o ./build/main ./cmd/api/main.go"
+cmd = "./build.sh"
 bin = "./build/main"
 full_bin = "./build/main"
-include_ext = ["go"]
+include_ext = ["go", "mod"]
 exclude_dir = ["build"]
 delay = 1000
 
