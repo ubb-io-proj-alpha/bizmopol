@@ -12,11 +12,6 @@ RUN mkdir -p /app/data
 
 COPY . .
 
-RUN if [ ! -f go.mod ]; then \
-        go mod init backend && \
-        go mod tidy; \
-    fi
-
 EXPOSE 8080
 
 CMD ["go", "run", "cmd/api/main.go"]
