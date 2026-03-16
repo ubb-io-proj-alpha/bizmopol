@@ -16,6 +16,7 @@ const router = createRouter({
         { path: "/dashboard", name: "dashboard" },
         { path: "/dashboard/funnels", name: "funnels" },
         { path: "/dashboard/contacts", name: "contacts" },
+        { path: "/dashboard/contacts/:id", name: "contactDetail" },
         { path: "/dashboard/communication", name: "communication" },
         { path: "/dashboard/courses", name: "courses" },
         { path: "/dashboard/documents", name: "documents" },

@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, watch } from "vue"
+import { ref, computed } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import CrmView from "./components/CrmView.vue"
+import ContactDetailView from "./components/ContactDetailView.vue"
 
 const TOKEN_KEY = "jwt_token"
 
@@ -134,17 +135,33 @@ const goToLogin = () => router.push({ name: "login" })
             </div>
             <nav>
                 <ul>
-                    <li @click="navigate('dashboard')" :class="{ active: currentView === 'dashboard' }">🏠 BizmoPol Market</li>
-                    <li @click="navigate('funnels')" :class="{ active: currentView === 'funnels' }">🚀 Lejki & Landing</li>
-                    <li @click="navigate('contacts')" :class="{ active: currentView === 'contacts' }">👥 CRM & Kontakty</li>
-                    <li @click="navigate('communication')" :class="{ active: currentView === 'communication' }">💬 Komunikacja</li>
-                    <li @click="navigate('courses')" :class="{ active: currentView === 'courses' }">🎓 Kursy & Portal</li>
-                    <li @click="navigate('documents')" :class="{ active: currentView === 'documents' }">✍️ Dokumenty & E-Sign</li>
-                    <li @click="navigate('calendar')" :class="{ active: currentView === 'calendar' }">📅 Kalendarz</li>
+                    <li @click="navigate('dashboard')" :class="{ active: currentView === 'dashboard' }">
+                        <span class="material-icons nav-icon">store</span> BizmoPol Market
+                    </li>
+                    <li @click="navigate('funnels')" :class="{ active: currentView === 'funnels' }">
+                        <span class="material-icons nav-icon">rocket_launch</span> Lejki &amp; Landing
+                    </li>
+                    <li @click="navigate('contacts')" :class="{ active: currentView === 'contacts' || currentView === 'contactDetail' }">
+                        <span class="material-icons nav-icon">group</span> CRM &amp; Kontakty
+                    </li>
+                    <li @click="navigate('communication')" :class="{ active: currentView === 'communication' }">
+                        <span class="material-icons nav-icon">chat</span> Komunikacja
+                    </li>
+                    <li @click="navigate('courses')" :class="{ active: currentView === 'courses' }">
+                        <span class="material-icons nav-icon">school</span> Kursy &amp; Portal
+                    </li>
+                    <li @click="navigate('documents')" :class="{ active: currentView === 'documents' }">
+                        <span class="material-icons nav-icon">edit_document</span> Dokumenty &amp; E-Sign
+                    </li>
+                    <li @click="navigate('calendar')" :class="{ active: currentView === 'calendar' }">
+                        <span class="material-icons nav-icon">calendar_month</span> Kalendarz
+                    </li>
                 </ul>
             </nav>
             <div class="sidebar-footer">
-                <button @click="logout" class="logout-link">🚪 Wyloguj się</button>
+                <button @click="logout" class="logout-link">
+                    <span class="material-icons nav-icon">logout</span> Wyloguj się
+                </button>
             </div>
         </aside>
 
@@ -192,17 +209,27 @@ const goToLogin = () => router.push({ name: "login" })
                 <CrmView :auth-fetch="authFetch" />
             </section>
 
+            <section v-if="currentView === 'contactDetail'" class="view-section">
+                <ContactDetailView :auth-fetch="authFetch" />
+            </section>
+
             <section v-if="currentView === 'communication'" class="view-section">
                 <h1>Komunikacja wielokanałowa</h1>
                 <div class="list-fill">
-                    <div class="item">📧 Dwukierunkowa komunikacja e-mail (Gmail/Outlook Sync)</div>
-                    <div class="item">📱 Automatyczne sekwencje e-mail i SMS</div>
-                    <div class="item">💬 Unified Inbox: Messenger, Instagram, Google Business</div>
+                    <div class="item">
+                        <span class="material-icons item-icon">email</span> Dwukierunkowa komunikacja e-mail (Gmail/Outlook Sync)
+                    </div>
+                    <div class="item">
+                        <span class="material-icons item-icon">smartphone</span> Automatyczne sekwencje e-mail i SMS
+                    </div>
+                    <div class="item">
+                        <span class="material-icons item-icon">inbox</span> Unified Inbox: Messenger, Instagram, Google Business
+                    </div>
                 </div>
             </section>
 
             <section v-if="currentView === 'courses'" class="view-section">
-                <h1>Kursy & Portal Członkowski</h1>
+                <h1>Kursy &amp; Portal Członkowski</h1>
                 <div class="grid-fill">
                     <div class="feature-card"><h3>Hosting</h3><p>Struktura kursu: moduły, lekcje, media</p></div>
                     <div class="feature-card"><h3>Dostęp</h3><p>Dostęp po zakupie lub podpisaniu dokumentu</p></div>
@@ -213,9 +240,15 @@ const goToLogin = () => router.push({ name: "login" })
             <section v-if="currentView === 'documents'" class="view-section">
                 <h1>Dokumenty i E-Signing</h1>
                 <div class="list-fill">
-                    <div class="item">📄 Upload plików PDF i HTML</div>
-                    <div class="item">✒️ System E-podpisu i powiadomienia o podpisaniu</div>
-                    <div class="item">🗄️ Archiwum podpisanych plików i historia podpisów</div>
+                    <div class="item">
+                        <span class="material-icons item-icon">picture_as_pdf</span> Upload plików PDF i HTML
+                    </div>
+                    <div class="item">
+                        <span class="material-icons item-icon">draw</span> System E-podpisu i powiadomienia o podpisaniu
+                    </div>
+                    <div class="item">
+                        <span class="material-icons item-icon">archive</span> Archiwum podpisanych plików i historia podpisów
+                    </div>
                 </div>
             </section>
 
@@ -304,6 +337,12 @@ const goToLogin = () => router.push({ name: "login" })
 .sidebar h2 { color: #38bdf8; margin-bottom: 5px; }
 .version { font-size: 0.7rem; color: #94a3b8; }
 
+.nav-icon {
+    font-size: 1.1rem;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
 .sidebar li {
     padding: 12px;
     margin: 8px 0;
@@ -311,6 +350,8 @@ const goToLogin = () => router.push({ name: "login" })
     cursor: pointer;
     transition: 0.2s;
     list-style: none;
+    display: flex;
+    align-items: center;
 }
 .sidebar li:hover { background: #334155; }
 .sidebar li.active { background: #38bdf8; color: #0f172a; font-weight: bold; }
@@ -325,6 +366,9 @@ const goToLogin = () => router.push({ name: "login" })
     border-radius: 8px;
     cursor: pointer;
     transition: 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .logout-link:hover { background: #ef4444; color: white; }
 
@@ -340,7 +384,23 @@ const goToLogin = () => router.push({ name: "login" })
 .stat-card, .feature-card { background: #1e293b; padding: 25px; border-radius: 12px; border: 1px solid #334155; }
 .stat-card.highlight { border-color: #38bdf8; }
 .stat-card .value { font-size: 2.2rem; font-weight: bold; color: #38bdf8; display: block; margin: 10px 0; }
-.item { background: #1e293b; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #38bdf8; }
+
+.item {
+    background: #1e293b;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    border-left: 4px solid #38bdf8;
+    display: flex;
+    align-items: center;
+}
+.item-icon {
+    font-size: 1.3rem;
+    margin-right: 12px;
+    color: #38bdf8;
+    flex-shrink: 0;
+}
+
 .btn-group { display: flex; gap: 15px; margin-top: 20px; }
 .btn { background: #38bdf8; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-weight: bold; color: #0f172a; }
 .btn:hover { background: #7dd3fc; }

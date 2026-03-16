@@ -1,9 +1,12 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from "vue-router"
 
 const props = defineProps({
     authFetch: { type: Function, required: true }
 })
+
+const router = useRouter()
 
 const contacts = ref([])
 const total = ref(0)
@@ -64,6 +67,10 @@ function openEdit(c) {
     Object.assign(form, { name: c.name, email: c.email, phone: c.phone, company: c.company, status: c.status, notes: c.notes })
     formError.value = ""
     showModal.value = true
+}
+
+function openDetail(id) {
+    router.push({ name: "contactDetail", params: { id } })
 }
 
 async function saveContact() {
@@ -153,7 +160,8 @@ function statusClass(s) {
                 <option v-for="o in sortOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
             <button class="btn-sort" @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'; loadContacts()">
-                {{ sortDir === 'asc' ? '↑ Rosnąco' : '↓ Malejąco' }}
+                <span class="material-icons sort-icon">{{ sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward' }}</span>
+                {{ sortDir === 'asc' ? 'Rosnąco' : 'Malejąco' }}
             </button>
         </div>
 
@@ -167,11 +175,20 @@ function statusClass(s) {
             <table class="contact-table">
                 <thead>
                     <tr>
-                        <th @click="toggleSort('name')" class="sortable">Nazwa {{ sortBy === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : '' }}</th>
+                        <th @click="toggleSort('name')" class="sortable">
+                            Nazwa
+                            <span v-if="sortBy === 'name'" class="material-icons th-sort-icon">{{ sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward' }}</span>
+                        </th>
                         <th>Email</th>
                         <th>Telefon</th>
-                        <th @click="toggleSort('company')" class="sortable">Firma {{ sortBy === 'company' ? (sortDir === 'asc' ? '↑' : '↓') : '' }}</th>
-                        <th @click="toggleSort('status')" class="sortable">Status {{ sortBy === 'status' ? (sortDir === 'asc' ? '↑' : '↓') : '' }}</th>
+                        <th @click="toggleSort('company')" class="sortable">
+                            Firma
+                            <span v-if="sortBy === 'company'" class="material-icons th-sort-icon">{{ sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward' }}</span>
+                        </th>
+                        <th @click="toggleSort('status')" class="sortable">
+                            Status
+                            <span v-if="sortBy === 'status'" class="material-icons th-sort-icon">{{ sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward' }}</span>
+                        </th>
                         <th>Akcje</th>
                     </tr>
                 </thead>
@@ -183,8 +200,15 @@ function statusClass(s) {
                         <td>{{ c.company }}</td>
                         <td><span :class="['badge', statusClass(c.status)]">{{ statusLabel(c.status) }}</span></td>
                         <td class="actions-cell">
-                            <button class="btn-edit" @click="openEdit(c)">✏️</button>
-                            <button class="btn-delete" @click="deleteContact(c.id)">🗑️</button>
+                            <button class="btn-action btn-detail" @click="openDetail(c.id)" title="Szczegóły">
+                                <span class="material-icons">visibility</span>
+                            </button>
+                            <button class="btn-action btn-edit" @click="openEdit(c)" title="Edytuj">
+                                <span class="material-icons">edit</span>
+                            </button>
+                            <button class="btn-action btn-delete" @click="deleteContact(c.id)" title="Usuń">
+                                <span class="material-icons">delete</span>
+                            </button>
                         </td>
                     </tr>
                 </tbody>
@@ -250,8 +274,10 @@ function statusClass(s) {
 .btn-sort {
     padding: 10px 16px; background: #1e293b; border: 1px solid #334155;
     border-radius: 8px; color: #f1f5f9; cursor: pointer; transition: 0.2s;
+    display: flex; align-items: center; gap: 6px;
 }
 .btn-sort:hover { border-color: #38bdf8; color: #38bdf8; }
+.sort-icon { font-size: 1rem; }
 
 .btn-primary {
     padding: 10px 20px; background: #38bdf8; border: none;
@@ -276,6 +302,7 @@ function statusClass(s) {
 }
 .contact-table th.sortable { cursor: pointer; user-select: none; }
 .contact-table th.sortable:hover { color: #38bdf8; }
+.th-sort-icon { font-size: 0.9rem; vertical-align: middle; margin-left: 4px; }
 .contact-table td { padding: 14px 16px; border-bottom: 1px solid #1e293b; color: #e2e8f0; font-size: 0.95rem; }
 .contact-table tr:last-child td { border-bottom: none; }
 .contact-table tr:hover td { background: #1e293b44; }
@@ -288,12 +315,15 @@ function statusClass(s) {
 .badge-inactive { background: #374151; color: #9ca3af; }
 
 .actions-cell { display: flex; gap: 8px; }
-.btn-edit, .btn-delete {
-    background: none; border: none; cursor: pointer; font-size: 1rem;
+.btn-action {
+    background: none; border: none; cursor: pointer;
     padding: 4px 8px; border-radius: 6px; transition: 0.15s;
+    display: flex; align-items: center; color: #94a3b8;
 }
-.btn-edit:hover { background: #1e3a5f; }
-.btn-delete:hover { background: #3f1414; }
+.btn-action .material-icons { font-size: 1.1rem; }
+.btn-detail:hover { background: #1e3a5f; color: #38bdf8; }
+.btn-edit:hover { background: #1e3a5f; color: #38bdf8; }
+.btn-delete:hover { background: #3f1414; color: #f87171; }
 
 .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
