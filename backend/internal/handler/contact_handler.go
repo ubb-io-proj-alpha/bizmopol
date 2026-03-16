@@ -86,3 +86,30 @@ func (h *ContactHandler) List(c *gin.Context) {
     }
     c.JSON(http.StatusOK, result)
 }
+
+func (h *ContactHandler) ListHistory(c *gin.Context) {
+    id := c.Param("id")
+    result, err := h.service.ListHistory(c, id)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    c.JSON(http.StatusOK, result)
+}
+
+func (h *ContactHandler) AddHistory(c *gin.Context) {
+    id := c.Param("id")
+    var input dto.AddHistoryRequest
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    userID, _ := c.Get("userID")
+    uid, _ := userID.(string)
+    result, err := h.service.AddHistory(c, id, uid, input)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    c.JSON(http.StatusCreated, result)
+}

@@ -52,7 +52,7 @@ func main() {
         slog.Error("Failed to connect to database", "error", err)
     }
 
-    if err := db.AutoMigrate(&model.User{}, &model.Contact{}); err != nil {
+    if err := db.AutoMigrate(&model.User{}, &model.Contact{}, &model.ContactHistory{}); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
 
@@ -88,6 +88,8 @@ func main() {
             contacts.GET("/:id", contactHandler.GetByID)
             contacts.PUT("/:id", contactHandler.Update)
             contacts.DELETE("/:id", contactHandler.Delete)
+            contacts.GET("/:id/history", contactHandler.ListHistory)
+            contacts.POST("/:id/history", contactHandler.AddHistory)
         }
     }
 

@@ -33,13 +33,32 @@ type ContactResponse struct {
 }
 
 type ContactListResponse struct {
-    Data  []ContactResponse `json:"data"`
-    Total int64             `json:"total"`
+    Data       []ContactResponse `json:"data"`
+    Total      int64             `json:"total"`
+    Page       int               `json:"page"`
+    PageSize   int               `json:"page_size"`
+    TotalPages int               `json:"total_pages"`
 }
 
 type ContactQuery struct {
-    Search  string `form:"search"`
-    Status  string `form:"status"`
-    SortBy  string `form:"sort_by"`
-    SortDir string `form:"sort_dir"`
+    Search   string `form:"search"`
+    Status   string `form:"status"`
+    SortBy   string `form:"sort_by"`
+    SortDir  string `form:"sort_dir"`
+    Page     int    `form:"page"`
+    PageSize int    `form:"page_size"`
+}
+
+type ContactHistoryResponse struct {
+    ID          string    `json:"id"`
+    ContactID   string    `json:"contact_id"`
+    Action      string    `json:"action"`
+    Description string    `json:"description"`
+    UserID      string    `json:"user_id"`
+    CreatedAt   time.Time `json:"created_at"`
+}
+
+type AddHistoryRequest struct {
+    Action      string `json:"action" binding:"required"`
+    Description string `json:"description"`
 }

@@ -2,6 +2,7 @@ package service
 
 import (
     "context"
+    "math"
 
     "github.com/google/uuid"
 
@@ -16,6 +17,8 @@ type ContactService interface {
     Update(ctx context.Context, id string, input dto.ContactUpdateRequest) (*dto.ContactResponse, error)
     Delete(ctx context.Context, id string) error
     List(ctx context.Context, q dto.ContactQuery) (*dto.ContactListResponse, error)
+    AddHistory(ctx context.Context, contactID, userID string, input dto.AddHistoryRequest) (*dto.ContactHistoryResponse, error)
+    ListHistory(ctx context.Context, contactID string) ([]dto.ContactHistoryResponse, error)
 }
 
 type contactService struct {
@@ -40,6 +43,17 @@ func toContactResponse(c *model.Contact) dto.ContactResponse {
     }
 }
 
+func toHistoryResponse(h *model.ContactHistory) dto.ContactHistoryResponse {
+    return dto.ContactHistoryResponse{
+        ID:          h.ID,
+        ContactID:   h.ContactID,
+        Action:      h.Action,
+        Description: h.Description,
+        UserID:      h.UserID,
+        CreatedAt:   h.CreatedAt,
+    }
+}
+
 func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequest) (*dto.ContactResponse, error) {
     status := input.Status
     if status == "" {
@@ -57,6 +71,14 @@ func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequ
     if err := s.repo.Create(ctx, c); err != nil {
         return nil, ErrInternal
     }
+    userID, _ := ctx.Value("userID").(string)
+    _ = s.repo.AddHistory(ctx, &model.ContactHistory{
+        ID:          uuid.NewString(),
+        ContactID:   c.ID,
+        Action:      "created",
+        Description: "Kontakt został utworzony",
+        UserID:      userID,
+    })
     r := toContactResponse(c)
     return &r, nil
 }
@@ -81,6 +103,7 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
     if c == nil {
         return nil, nil
     }
+    oldStatus := c.Status
     if input.Name != "" {
         c.Name = input.Name
     }
@@ -94,6 +117,18 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
     if err := s.repo.Update(ctx, c); err != nil {
         return nil, ErrInternal
     }
+    userID, _ := ctx.Value("userID").(string)
+    desc := "Kontakt został zaktualizowany"
+    if input.Status != "" && input.Status != oldStatus {
+        desc = "Status zmieniony z " + oldStatus + " na " + input.Status
+    }
+    _ = s.repo.AddHistory(ctx, &model.ContactHistory{
+        ID:          uuid.NewString(),
+        ContactID:   c.ID,
+        Action:      "updated",
+        Description: desc,
+        UserID:      userID,
+    })
     r := toContactResponse(c)
     return &r, nil
 }
@@ -103,7 +138,16 @@ func (s *contactService) Delete(ctx context.Context, id string) error {
 }
 
 func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.ContactListResponse, error) {
-    contacts, total, err := s.repo.List(ctx, q.Search, q.Status, q.SortBy, q.SortDir)
+    pageSize := q.PageSize
+    if pageSize <= 0 {
+        pageSize = 20
+    }
+    page := q.Page
+    if page <= 0 {
+        page = 1
+    }
+
+    contacts, total, err := s.repo.List(ctx, q.Search, q.Status, q.SortBy, q.SortDir, page, pageSize)
     if err != nil {
         return nil, ErrInternal
     }
@@ -111,5 +155,39 @@ func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.Con
     for _, c := range contacts {
         items = append(items, toContactResponse(c))
     }
-    return &dto.ContactListResponse{Data: items, Total: total}, nil
+    totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+    return &dto.ContactListResponse{
+        Data:       items,
+        Total:      total,
+        Page:       page,
+        PageSize:   pageSize,
+        TotalPages: totalPages,
+    }, nil
+}
+
+func (s *contactService) AddHistory(ctx context.Context, contactID, userID string, input dto.AddHistoryRequest) (*dto.ContactHistoryResponse, error) {
+    h := &model.ContactHistory{
+        ID:          uuid.NewString(),
+        ContactID:   contactID,
+        Action:      input.Action,
+        Description: input.Description,
+        UserID:      userID,
+    }
+    if err := s.repo.AddHistory(ctx, h); err != nil {
+        return nil, ErrInternal
+    }
+    r := toHistoryResponse(h)
+    return &r, nil
+}
+
+func (s *contactService) ListHistory(ctx context.Context, contactID string) ([]dto.ContactHistoryResponse, error) {
+    items, err := s.repo.ListHistory(ctx, contactID)
+    if err != nil {
+        return nil, ErrInternal
+    }
+    result := make([]dto.ContactHistoryResponse, 0, len(items))
+    for _, h := range items {
+        result = append(result, toHistoryResponse(h))
+    }
+    return result, nil
 }
