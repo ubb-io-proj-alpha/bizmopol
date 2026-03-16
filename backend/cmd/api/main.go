@@ -52,7 +52,7 @@ func main() {
         slog.Error("Failed to connect to database", "error", err)
     }
 
-    if err := db.AutoMigrate(&model.Test{}, &model.User{}, &model.Contact{}); err != nil {
+    if err := db.AutoMigrate(&model.User{}, &model.Contact{}); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
 
