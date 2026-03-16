@@ -85,11 +85,14 @@ func main() {
         {
             contacts.GET("/", contactHandler.List)
             contacts.POST("/", contactHandler.Create)
+            contacts.POST("/merge", contactHandler.Merge)
             contacts.GET("/:id", contactHandler.GetByID)
             contacts.PUT("/:id", contactHandler.Update)
             contacts.DELETE("/:id", contactHandler.Delete)
             contacts.GET("/:id/history", contactHandler.ListHistory)
             contacts.POST("/:id/history", contactHandler.AddHistory)
+            contacts.GET("/:id/members", contactHandler.GetGroupMembers)
+            contacts.GET("/:id/group-history", contactHandler.GetGroupHistory)
         }
     }
 

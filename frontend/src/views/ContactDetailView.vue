@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, inject } from "vue"
+import { ref, onMounted, inject, computed } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 const authFetch = inject("authFetch")
@@ -14,14 +14,28 @@ const error = ref("")
 const history = ref([])
 const historyLoading = ref(false)
 const historyError = ref("")
+const historyPage = ref(1)
+const historyPageSize = ref(10)
+const historyTotal = ref(0)
+const historyTotalPages = ref(1)
+
+const members = ref([])
+const membersLoading = ref(false)
+const membersPage = ref(1)
+const membersPageSize = ref(10)
+const membersTotal = ref(0)
+const membersTotalPages = ref(1)
 
 const showAddNote = ref(false)
 const noteForm = ref({ action: "note", description: "" })
 const noteError = ref("")
 
+const isGroup = computed(() => contact.value?.is_group === true)
+
 const actionLabels = {
     created: "Utworzono",
     updated: "Zaktualizowano",
+    merged: "Scalono",
     note: "Notatka",
     call: "Telefon",
     email: "Email",
@@ -40,20 +54,61 @@ onMounted(async () => {
         loading.value = false
     }
     loadHistory()
+    if (isGroup.value) {
+        loadMembers()
+    }
 })
 
 async function loadHistory() {
     historyLoading.value = true
     historyError.value = ""
     try {
-        const res = await authFetch("/api/v1/contacts/" + route.params.id + "/history")
+        const endpoint = isGroup.value
+            ? `/api/v1/contacts/${route.params.id}/group-history?page=${historyPage.value}&page_size=${historyPageSize.value}`
+            : `/api/v1/contacts/${route.params.id}/history`
+        const res = await authFetch(endpoint)
         if (!res.ok) throw new Error("Błąd pobierania historii")
-        history.value = await res.json()
+        const data = await res.json()
+        if (isGroup.value) {
+            history.value = data.data || []
+            historyTotal.value = data.total || 0
+            historyTotalPages.value = data.total_pages || 1
+        } else {
+            history.value = Array.isArray(data) ? data : []
+        }
     } catch (e) {
         historyError.value = e.message
     } finally {
         historyLoading.value = false
     }
+}
+
+async function loadMembers() {
+    membersLoading.value = true
+    try {
+        const res = await authFetch(`/api/v1/contacts/${route.params.id}/members?page=${membersPage.value}&page_size=${membersPageSize.value}`)
+        if (!res.ok) throw new Error("Błąd pobierania członków")
+        const data = await res.json()
+        members.value = data.data || []
+        membersTotal.value = data.total || 0
+        membersTotalPages.value = data.total_pages || 1
+    } catch (e) {
+        error.value = e.message
+    } finally {
+        membersLoading.value = false
+    }
+}
+
+function goHistoryPage(p) {
+    if (p < 1 || p > historyTotalPages.value) return
+    historyPage.value = p
+    loadHistory()
+}
+
+function goMembersPage(p) {
+    if (p < 1 || p > membersTotalPages.value) return
+    membersPage.value = p
+    loadMembers()
 }
 
 async function addNote() {
@@ -70,6 +125,7 @@ async function addNote() {
         if (!res.ok) throw new Error("Błąd zapisu")
         showAddNote.value = false
         noteForm.value = { action: "note", description: "" }
+        historyPage.value = 1
         await loadHistory()
     } catch (e) {
         noteError.value = e.message
@@ -91,7 +147,7 @@ function formatDate(d) {
 }
 
 function actionIcon(a) {
-    const map = { created: "add_circle", updated: "edit", note: "sticky_note_2", call: "call", email: "email", meeting: "event" }
+    const map = { created: "add_circle", updated: "edit", merged: "merge", note: "sticky_note_2", call: "call", email: "email", meeting: "event" }
     return map[a] || "history"
 }
 </script>
@@ -106,8 +162,14 @@ function actionIcon(a) {
         <div v-else-if="contact" class="detail-card">
             <div class="detail-header">
                 <div>
-                    <h1>{{ contact.name }}</h1>
-                    <span :class="['badge', statusClass(contact.status)]">{{ statusLabel(contact.status) }}</span>
+                    <div class="name-row">
+                        <span v-if="isGroup" class="material-icons group-badge-icon">corporate_fare</span>
+                        <h1>{{ contact.name }}</h1>
+                    </div>
+                    <div class="badges-row">
+                        <span :class="['badge', statusClass(contact.status)]">{{ statusLabel(contact.status) }}</span>
+                        <span v-if="isGroup" class="badge badge-group">Grupa / Firma</span>
+                    </div>
                 </div>
             </div>
 
@@ -140,9 +202,38 @@ function actionIcon(a) {
             </div>
         </div>
 
+        <div v-if="isGroup" class="members-section">
+            <h2>Kontakty w grupie <span class="count-badge">{{ membersTotal }}</span></h2>
+            <div v-if="membersLoading" class="loading">Ładowanie...</div>
+            <div v-else-if="members.length === 0" class="empty-msg">Brak kontaktów w grupie.</div>
+            <div v-else class="members-grid">
+                <div v-for="m in members" :key="m.id" class="member-card" @click="router.push({ name: 'contactDetail', params: { id: m.id } })">
+                    <div class="member-name">{{ m.name }}</div>
+                    <div class="member-details">
+                        <span v-if="m.phone" class="member-detail"><span class="material-icons">phone</span>{{ m.phone }}</span>
+                        <span v-if="m.email" class="member-detail"><span class="material-icons">email</span>{{ m.email }}</span>
+                    </div>
+                    <span :class="['badge', statusClass(m.status)]">{{ statusLabel(m.status) }}</span>
+                </div>
+            </div>
+            <div v-if="membersTotalPages > 1" class="pagination">
+                <button class="page-btn" :disabled="membersPage <= 1" @click="goMembersPage(membersPage - 1)">
+                    <span class="material-icons">chevron_left</span>
+                </button>
+                <button
+                    v-for="p in membersTotalPages" :key="p"
+                    class="page-btn" :class="{ active: p === membersPage }"
+                    @click="goMembersPage(p)"
+                >{{ p }}</button>
+                <button class="page-btn" :disabled="membersPage >= membersTotalPages" @click="goMembersPage(membersPage + 1)">
+                    <span class="material-icons">chevron_right</span>
+                </button>
+            </div>
+        </div>
+
         <div class="history-section">
             <div class="history-header">
-                <h2>Historia</h2>
+                <h2>Historia <span v-if="isGroup && historyTotal > 0" class="count-badge">{{ historyTotal }}</span></h2>
                 <button class="btn-primary" @click="showAddNote = !showAddNote">+ Dodaj wpis</button>
             </div>
 
@@ -177,19 +268,36 @@ function actionIcon(a) {
                     </div>
                     <div class="timeline-body">
                         <div class="timeline-meta">
-                            <span class="action-label">{{ actionLabels[h.action] || h.action }}</span>
+                            <div class="meta-left">
+                                <span class="action-label">{{ actionLabels[h.action] || h.action }}</span>
+                                <span v-if="isGroup" class="contact-ref">ID: {{ h.contact_id.slice(0, 8) }}...</span>
+                            </div>
                             <span class="timeline-date">{{ formatDate(h.created_at) }}</span>
                         </div>
                         <p v-if="h.description" class="timeline-desc">{{ h.description }}</p>
                     </div>
                 </div>
             </div>
+
+            <div v-if="isGroup && historyTotalPages > 1" class="pagination">
+                <button class="page-btn" :disabled="historyPage <= 1" @click="goHistoryPage(historyPage - 1)">
+                    <span class="material-icons">chevron_left</span>
+                </button>
+                <button
+                    v-for="p in historyTotalPages" :key="p"
+                    class="page-btn" :class="{ active: p === historyPage }"
+                    @click="goHistoryPage(p)"
+                >{{ p }}</button>
+                <button class="page-btn" :disabled="historyPage >= historyTotalPages" @click="goHistoryPage(historyPage + 1)">
+                    <span class="material-icons">chevron_right</span>
+                </button>
+            </div>
         </div>
     </div>
 </template>
 
 <style scoped>
-.detail-wrapper { width: 100%; max-width: 800px; margin: 0 auto; }
+.detail-wrapper { width: 100%; max-width: 900px; margin: 0 auto; }
 .btn-back {
     background: transparent; border: 1px solid #334155; color: #94a3b8;
     padding: 8px 16px; border-radius: 8px; cursor: pointer; margin-bottom: 24px;
@@ -198,11 +306,15 @@ function actionIcon(a) {
 .btn-back:hover { border-color: #38bdf8; color: #38bdf8; }
 .loading { color: #94a3b8; padding: 40px; text-align: center; }
 .err-msg { color: #f87171; font-size: 0.9rem; }
+.empty-msg { color: #94a3b8; padding: 20px; text-align: center; }
 .detail-card {
     background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px;
 }
 .detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; }
-.detail-header h1 { font-size: 1.8rem; color: #f8fafc; margin-bottom: 10px; }
+.name-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.name-row h1 { font-size: 1.8rem; color: #f8fafc; }
+.group-badge-icon { font-size: 1.8rem; color: #7c3aed; }
+.badges-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 24px; }
 .detail-item { display: flex; flex-direction: column; gap: 4px; }
 .label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
@@ -214,10 +326,25 @@ function actionIcon(a) {
 .badge-prospect { background: #7c3aed; color: #ede9fe; }
 .badge-customer { background: #065f46; color: #a7f3d0; }
 .badge-inactive { background: #374151; color: #9ca3af; }
+.badge-group { background: #4c1d95; color: #ddd6fe; }
+
+.members-section { margin-top: 32px; }
+.members-section h2 { color: #f8fafc; font-size: 1.3rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.count-badge { background: #334155; color: #94a3b8; font-size: 0.8rem; padding: 2px 8px; border-radius: 20px; font-weight: normal; }
+.members-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.member-card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px;
+    cursor: pointer; transition: 0.2s;
+}
+.member-card:hover { border-color: #38bdf8; }
+.member-name { color: #f1f5f9; font-weight: 600; margin-bottom: 8px; }
+.member-details { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.member-detail { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 0.85rem; }
+.member-detail .material-icons { font-size: 0.9rem; color: #38bdf8; }
 
 .history-section { margin-top: 32px; }
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.history-header h2 { color: #f8fafc; font-size: 1.3rem; }
+.history-header h2 { color: #f8fafc; font-size: 1.3rem; display: flex; align-items: center; gap: 10px; }
 
 .btn-primary {
     padding: 8px 16px; background: #38bdf8; border: none;
@@ -254,7 +381,23 @@ function actionIcon(a) {
 .timeline-icon .material-icons { font-size: 1rem; color: #38bdf8; }
 .timeline-body { flex: 1; }
 .timeline-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.meta-left { display: flex; flex-direction: column; gap: 2px; }
 .action-label { font-size: 0.85rem; font-weight: 600; color: #38bdf8; }
+.contact-ref { font-size: 0.75rem; color: #475569; }
 .timeline-date { font-size: 0.78rem; color: #64748b; }
 .timeline-desc { color: #e2e8f0; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+
+.pagination {
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; margin-top: 16px; flex-wrap: wrap;
+}
+.page-btn {
+    min-width: 36px; height: 36px; padding: 0 10px;
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    color: #f1f5f9; cursor: pointer; transition: 0.15s;
+    display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+}
+.page-btn:hover:not(:disabled) { border-color: #38bdf8; color: #38bdf8; }
+.page-btn.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; font-weight: bold; }
+.page-btn:disabled { opacity: 0.4; cursor: default; }
 </style>

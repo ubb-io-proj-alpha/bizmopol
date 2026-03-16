@@ -17,6 +17,9 @@ type ContactService interface {
     Update(ctx context.Context, id string, input dto.ContactUpdateRequest) (*dto.ContactResponse, error)
     Delete(ctx context.Context, id string) error
     List(ctx context.Context, q dto.ContactQuery) (*dto.ContactListResponse, error)
+    Merge(ctx context.Context, userID string, input dto.MergeRequest) (*dto.ContactResponse, error)
+    GetGroupMembers(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupMembersResponse, error)
+    GetGroupHistory(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupHistoryResponse, error)
     AddHistory(ctx context.Context, contactID, userID string, input dto.AddHistoryRequest) (*dto.ContactHistoryResponse, error)
     ListHistory(ctx context.Context, contactID string) ([]dto.ContactHistoryResponse, error)
 }
@@ -38,6 +41,8 @@ func toContactResponse(c *model.Contact) dto.ContactResponse {
         Company:   c.Company,
         Status:    c.Status,
         Notes:     c.Notes,
+        IsGroup:   c.IsGroup,
+        GroupID:   c.GroupID,
         CreatedAt: c.CreatedAt,
         UpdatedAt: c.UpdatedAt,
     }
@@ -158,6 +163,102 @@ func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.Con
     totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
     return &dto.ContactListResponse{
         Data:       items,
+        Total:      total,
+        Page:       page,
+        PageSize:   pageSize,
+        TotalPages: totalPages,
+    }, nil
+}
+
+func (s *contactService) Merge(ctx context.Context, userID string, input dto.MergeRequest) (*dto.ContactResponse, error) {
+    members, err := s.repo.FindByIDs(ctx, input.ContactIDs)
+    if err != nil {
+        return nil, ErrInternal
+    }
+    if len(members) < 2 {
+        return nil, ErrInternal
+    }
+
+    status := input.Status
+    if status == "" {
+        status = "customer"
+    }
+    company := input.Company
+    if company == "" && len(members) > 0 {
+        company = members[0].Company
+    }
+
+    group := &model.Contact{
+        ID:      uuid.NewString(),
+        Name:    input.GroupName,
+        Company: company,
+        Status:  status,
+        IsGroup: true,
+    }
+    if err := s.repo.Create(ctx, group); err != nil {
+        return nil, ErrInternal
+    }
+
+    for _, m := range members {
+        m.GroupID = group.ID
+        _ = s.repo.Update(ctx, m)
+    }
+
+    _ = s.repo.AddHistory(ctx, &model.ContactHistory{
+        ID:          uuid.NewString(),
+        ContactID:   group.ID,
+        Action:      "merged",
+        Description: "Połączono " + string(rune('0'+len(members))) + " kontaktów w grupę",
+        UserID:      userID,
+    })
+
+    r := toContactResponse(group)
+    return &r, nil
+}
+
+func (s *contactService) GetGroupMembers(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupMembersResponse, error) {
+    if pageSize <= 0 {
+        pageSize = 10
+    }
+    if page <= 0 {
+        page = 1
+    }
+    members, total, err := s.repo.FindMembers(ctx, groupID, page, pageSize)
+    if err != nil {
+        return nil, ErrInternal
+    }
+    items := make([]dto.ContactResponse, 0, len(members))
+    for _, m := range members {
+        items = append(items, toContactResponse(m))
+    }
+    totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+    return &dto.GroupMembersResponse{
+        Data:       items,
+        Total:      total,
+        Page:       page,
+        PageSize:   pageSize,
+        TotalPages: totalPages,
+    }, nil
+}
+
+func (s *contactService) GetGroupHistory(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupHistoryResponse, error) {
+    if pageSize <= 0 {
+        pageSize = 10
+    }
+    if page <= 0 {
+        page = 1
+    }
+    items, total, err := s.repo.ListGroupHistory(ctx, groupID, page, pageSize)
+    if err != nil {
+        return nil, ErrInternal
+    }
+    result := make([]dto.ContactHistoryResponse, 0, len(items))
+    for _, h := range items {
+        result = append(result, toHistoryResponse(h))
+    }
+    totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+    return &dto.GroupHistoryResponse{
+        Data:       result,
         Total:      total,
         Page:       page,
         PageSize:   pageSize,

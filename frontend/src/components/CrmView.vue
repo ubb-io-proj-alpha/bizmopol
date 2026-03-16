@@ -25,9 +25,16 @@ const editingId = ref(null)
 const form = reactive({ name: "", email: "", phone: "", company: "", status: "lead", notes: "" })
 const formError = ref("")
 
+const showMergeModal = ref(false)
+const mergeForm = reactive({ groupName: "", company: "", status: "customer" })
+const mergeError = ref("")
+
+const selectedIds = ref(new Set())
+
 const statuses = ["lead", "prospect", "customer", "inactive"]
 
 const columns = [
+    { key: "_select", label: "", sortable: false },
     { key: "name", label: "Nazwa", sortable: true, cellClass: "name-cell" },
     { key: "email", label: "Email" },
     { key: "phone", label: "Telefon" },
@@ -58,6 +65,62 @@ onMounted(loadContacts)
 function onSearch() {
     page.value = 1
     loadContacts()
+}
+
+function toggleSelect(id) {
+    const next = new Set(selectedIds.value)
+    if (next.has(id)) {
+        next.delete(id)
+    } else {
+        next.add(id)
+    }
+    selectedIds.value = next
+}
+
+function toggleSelectAll() {
+    if (selectedIds.value.size === contacts.value.length) {
+        selectedIds.value = new Set()
+    } else {
+        selectedIds.value = new Set(contacts.value.map(c => c.id))
+    }
+}
+
+function openMergeModal() {
+    mergeForm.groupName = ""
+    mergeForm.company = ""
+    mergeForm.status = "customer"
+    mergeError.value = ""
+    showMergeModal.value = true
+}
+
+async function doMerge() {
+    mergeError.value = ""
+    if (!mergeForm.groupName.trim()) {
+        mergeError.value = "Nazwa grupy jest wymagana."
+        return
+    }
+    try {
+        const res = await props.authFetch("/api/v1/contacts/merge", {
+            method: "POST",
+            body: JSON.stringify({
+                contact_ids: Array.from(selectedIds.value),
+                group_name: mergeForm.groupName,
+                company: mergeForm.company,
+                status: mergeForm.status,
+            }),
+        })
+        if (!res.ok) {
+            const d = await res.json()
+            throw new Error(d.error || "Błąd scalania")
+        }
+        const group = await res.json()
+        showMergeModal.value = false
+        selectedIds.value = new Set()
+        await loadContacts()
+        router.push({ name: "contactDetail", params: { id: group.id } })
+    } catch (e) {
+        mergeError.value = e.message
+    }
 }
 
 function openCreate() {
@@ -113,6 +176,7 @@ async function deleteContact(id) {
     try {
         const res = await props.authFetch("/api/v1/contacts/" + id, { method: "DELETE" })
         if (!res.ok && res.status !== 204) throw new Error("Błąd usuwania")
+        selectedIds.value.delete(id)
         await loadContacts()
     } catch (e) {
         error.value = e.message
@@ -154,7 +218,17 @@ function statusClass(s) {
                 <h1>CRM — Kontakty</h1>
                 <p class="subtitle">Łącznie: {{ total }} kontaktów</p>
             </div>
-            <button class="btn-primary" @click="openCreate">+ Nowy kontakt</button>
+            <div class="header-actions">
+                <button
+                    v-if="selectedIds.size >= 2"
+                    class="btn-merge"
+                    @click="openMergeModal"
+                >
+                    <span class="material-icons">merge</span>
+                    Scal zaznaczone ({{ selectedIds.size }})
+                </button>
+                <button class="btn-primary" @click="openCreate">+ Nowy kontakt</button>
+            </div>
         </div>
 
         <div class="crm-filters">
@@ -188,30 +262,60 @@ function statusClass(s) {
 
         <p v-if="error" class="err-msg">{{ error }}</p>
 
-        <CrudTable
-            :columns="columns"
-            :rows="contacts"
-            :sort-by="sortBy"
-            :sort-dir="sortDir"
-            :loading="loading"
-            empty-text="Brak kontaktów."
-            @sort="onSort"
-        >
-            <template #cell-status="{ row }">
-                <span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span>
-            </template>
-            <template #actions="{ row }">
-                <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
-                    <span class="material-icons">visibility</span>
-                </button>
-                <button class="btn-action btn-edit" @click="openEdit(row)" title="Edytuj">
-                    <span class="material-icons">edit</span>
-                </button>
-                <button class="btn-action btn-delete" @click="deleteContact(row.id)" title="Usuń">
-                    <span class="material-icons">delete</span>
-                </button>
-            </template>
-        </CrudTable>
+        <div v-if="!loading && contacts.length > 0" class="table-wrap">
+            <table class="crud-table">
+                <thead>
+                    <tr>
+                        <th class="col-check">
+                            <input
+                                type="checkbox"
+                                :checked="selectedIds.size === contacts.length && contacts.length > 0"
+                                :indeterminate="selectedIds.size > 0 && selectedIds.size < contacts.length"
+                                @change="toggleSelectAll"
+                            />
+                        </th>
+                        <th>Nazwa</th>
+                        <th>Email</th>
+                        <th>Telefon</th>
+                        <th>Firma</th>
+                        <th>Status</th>
+                        <th>Akcje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="row in contacts" :key="row.id" :class="{ selected: selectedIds.has(row.id) }">
+                        <td class="col-check">
+                            <input
+                                type="checkbox"
+                                :checked="selectedIds.has(row.id)"
+                                @change="toggleSelect(row.id)"
+                            />
+                        </td>
+                        <td class="name-cell">
+                            <span v-if="row.is_group" class="group-icon material-icons" title="Grupa/Firma">corporate_fare</span>
+                            {{ row.name }}
+                        </td>
+                        <td>{{ row.email }}</td>
+                        <td>{{ row.phone }}</td>
+                        <td>{{ row.company }}</td>
+                        <td><span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span></td>
+                        <td class="actions-cell">
+                            <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
+                                <span class="material-icons">visibility</span>
+                            </button>
+                            <button class="btn-action btn-edit" @click="openEdit(row)" title="Edytuj">
+                                <span class="material-icons">edit</span>
+                            </button>
+                            <button class="btn-action btn-delete" @click="deleteContact(row.id)" title="Usuń">
+                                <span class="material-icons">delete</span>
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div v-else-if="loading" class="loading">Ładowanie...</div>
+        <div v-else class="empty">Brak kontaktów.</div>
 
         <div v-if="totalPages > 1" class="pagination">
             <button class="page-btn" :disabled="page <= 1" @click="goToPage(page - 1)">
@@ -229,6 +333,32 @@ function statusClass(s) {
             <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(page + 1)">
                 <span class="material-icons">chevron_right</span>
             </button>
+        </div>
+
+        <div v-if="showMergeModal" class="modal-overlay" @click.self="showMergeModal = false">
+            <div class="modal">
+                <h2>Scal kontakty w grupę</h2>
+                <p class="merge-info">Scalasz {{ selectedIds.size }} kontaktów. Zostaną połączone jako firma/grupa. Historia i dane każdego kontaktu będą widoczne w widoku szczegółów.</p>
+                <div class="form-group">
+                    <label>Nazwa grupy / firmy *</label>
+                    <input v-model="mergeForm.groupName" placeholder="np. ABC Corp" />
+                </div>
+                <div class="form-group">
+                    <label>Firma (opcjonalnie)</label>
+                    <input v-model="mergeForm.company" placeholder="Nazwa firmy" />
+                </div>
+                <div class="form-group">
+                    <label>Status grupy</label>
+                    <select v-model="mergeForm.status">
+                        <option v-for="s in statuses" :key="s" :value="s">{{ statusLabel(s) }}</option>
+                    </select>
+                </div>
+                <p v-if="mergeError" class="err-msg">{{ mergeError }}</p>
+                <div class="modal-actions">
+                    <button class="btn-secondary" @click="showMergeModal = false">Anuluj</button>
+                    <button class="btn-primary" @click="doMerge">Scal</button>
+                </div>
+            </div>
         </div>
 
         <div v-if="showModal" class="modal-overlay" @click.self="showModal = false">
@@ -275,6 +405,7 @@ function statusClass(s) {
 .crm-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
 .crm-header h1 { font-size: 2rem; color: #f8fafc; margin-bottom: 4px; }
 .subtitle { color: #94a3b8; font-size: 0.95rem; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
 
 .crm-filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .filter-input {
@@ -305,8 +436,33 @@ function statusClass(s) {
     border-radius: 8px; color: #94a3b8; cursor: pointer; transition: 0.2s;
 }
 .btn-secondary:hover { border-color: #f1f5f9; color: #f1f5f9; }
+.btn-merge {
+    padding: 10px 18px; background: #7c3aed; border: none;
+    border-radius: 8px; color: #ede9fe; font-weight: bold; cursor: pointer; transition: 0.2s;
+    display: flex; align-items: center; gap: 6px;
+}
+.btn-merge:hover { background: #6d28d9; }
+.btn-merge .material-icons { font-size: 1.1rem; }
 
 .err-msg { color: #f87171; font-size: 0.9rem; margin-bottom: 12px; }
+
+.loading, .empty { color: #94a3b8; padding: 40px; text-align: center; }
+.table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid #334155; }
+.crud-table { width: 100%; border-collapse: collapse; }
+.crud-table th {
+    background: #1e293b; padding: 12px 16px; text-align: left;
+    color: #94a3b8; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;
+    border-bottom: 1px solid #334155;
+}
+.crud-table td { padding: 14px 16px; border-bottom: 1px solid #1e293b; color: #e2e8f0; font-size: 0.95rem; }
+.crud-table tr:last-child td { border-bottom: none; }
+.crud-table tr:hover td { background: #1e293b44; }
+.crud-table tr.selected td { background: #1e293b88; }
+.col-check { width: 40px; padding: 12px 8px !important; }
+.col-check input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: #38bdf8; }
+.name-cell { display: flex; align-items: center; gap: 6px; }
+.group-icon { font-size: 1rem; color: #7c3aed; }
+.actions-cell { display: flex; gap: 8px; }
 
 .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
 .badge-lead { background: #1d4ed8; color: #bfdbfe; }
@@ -347,7 +503,8 @@ function statusClass(s) {
     background: #1e293b; border: 1px solid #334155; border-radius: 16px;
     padding: 32px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
 }
-.modal h2 { color: #38bdf8; margin-bottom: 20px; font-size: 1.4rem; }
+.modal h2 { color: #38bdf8; margin-bottom: 12px; font-size: 1.4rem; }
+.merge-info { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.88rem; }
 .form-group input, .form-group select, .form-group textarea {

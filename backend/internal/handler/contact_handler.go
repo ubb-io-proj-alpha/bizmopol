@@ -2,6 +2,7 @@ package handler
 
 import (
     "net/http"
+    "strconv"
 
     "github.com/gin-gonic/gin"
 
@@ -112,4 +113,44 @@ func (h *ContactHandler) AddHistory(c *gin.Context) {
         return
     }
     c.JSON(http.StatusCreated, result)
+}
+
+func (h *ContactHandler) Merge(c *gin.Context) {
+    var input dto.MergeRequest
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    userID, _ := c.Get("userID")
+    uid, _ := userID.(string)
+    result, err := h.service.Merge(c, uid, input)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    c.JSON(http.StatusCreated, result)
+}
+
+func (h *ContactHandler) GetGroupMembers(c *gin.Context) {
+    id := c.Param("id")
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+    result, err := h.service.GetGroupMembers(c, id, page, pageSize)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    c.JSON(http.StatusOK, result)
+}
+
+func (h *ContactHandler) GetGroupHistory(c *gin.Context) {
+    id := c.Param("id")
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+    result, err := h.service.GetGroupHistory(c, id, page, pageSize)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    c.JSON(http.StatusOK, result)
 }
