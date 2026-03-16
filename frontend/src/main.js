@@ -11,16 +11,22 @@ const router = createRouter({
     history: createWebHistory(),
     routes: [
         { path: "/", redirect: "/login" },
-        { path: "/login", name: "login", meta: { public: true } },
-        { path: "/register", name: "register", meta: { public: true } },
-        { path: "/dashboard", name: "dashboard" },
-        { path: "/dashboard/funnels", name: "funnels" },
-        { path: "/dashboard/contacts", name: "contacts" },
-        { path: "/dashboard/contacts/:id", name: "contactDetail" },
-        { path: "/dashboard/communication", name: "communication" },
-        { path: "/dashboard/courses", name: "courses" },
-        { path: "/dashboard/documents", name: "documents" },
-        { path: "/dashboard/calendar", name: "calendar" },
+        { path: "/login", name: "login", component: () => import("./views/LoginView.vue"), meta: { public: true } },
+        { path: "/register", name: "register", component: () => import("./views/LoginView.vue"), meta: { public: true } },
+        {
+            path: "/dashboard",
+            component: () => import("./views/DashboardLayout.vue"),
+            children: [
+                { path: "", name: "dashboard", component: () => import("./views/DashboardHomeView.vue") },
+                { path: "funnels", name: "funnels", component: () => import("./views/FunnelsView.vue") },
+                { path: "contacts", name: "contacts", component: () => import("./views/ContactsView.vue") },
+                { path: "contacts/:id", name: "contactDetail", component: () => import("./views/ContactDetailView.vue") },
+                { path: "communication", name: "communication", component: () => import("./views/CommunicationView.vue") },
+                { path: "courses", name: "courses", component: () => import("./views/CoursesView.vue") },
+                { path: "documents", name: "documents", component: () => import("./views/DocumentsView.vue") },
+                { path: "calendar", name: "calendar", component: () => import("./views/CalendarView.vue") },
+            ],
+        },
     ],
 })
 
