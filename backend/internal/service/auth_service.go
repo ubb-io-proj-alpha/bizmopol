@@ -15,8 +15,9 @@ import (
 )
 
 var (
-    ErrUserExists         = errors.New("user_already_exists")
-    ErrInvalidCredentials = errors.New("invalid_credentials")
+	ErrUserExists          =  errors.New("user_already_exists")
+	ErrInvalidCredentials  =  errors.New("invalid_credentials")
+	ErrInternal            =  errors.New("internal_error")
 )
 
 type AuthService interface {

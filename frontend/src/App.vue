@@ -1,6 +1,7 @@
 <script setup>
-import { ref } from 'vue'
-import CrmView from './components/CrmView.vue'
+import { ref, computed, watch } from "vue"
+import { useRouter, useRoute } from "vue-router"
+import CrmView from "./components/CrmView.vue"
 
 const TOKEN_KEY = "jwt_token"
 
@@ -9,12 +10,22 @@ const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
 const removeToken = () => localStorage.removeItem(TOKEN_KEY)
 
 const isLoggedIn = ref(!!getToken())
-const isRegisterMode = ref(false)
+
+const router = useRouter()
+const route = useRoute()
+
+const isRegisterMode = computed(() => route.name === "register")
 
 const email = ref("")
 const password = ref("")
 const name = ref("")
 const authError = ref("")
+
+const currentView = computed(() => {
+    const n = route.name
+    if (!n || n === "dashboard") return "dashboard"
+    return n
+})
 
 const handleAuth = async () => {
     authError.value = ""
@@ -46,11 +57,13 @@ const handleAuth = async () => {
     email.value = ""
     password.value = ""
     name.value = ""
+    router.push({ name: "dashboard" })
 }
 
 const logout = () => {
     removeToken()
     isLoggedIn.value = false
+    router.push({ name: "login" })
 }
 
 const authFetch = (url, options = {}) => {
@@ -65,7 +78,10 @@ const authFetch = (url, options = {}) => {
     })
 }
 
-const currentView = ref("market")
+const navigate = (name) => router.push({ name })
+
+const goToRegister = () => router.push({ name: "register" })
+const goToLogin = () => router.push({ name: "login" })
 </script>
 
 <template>
@@ -73,7 +89,7 @@ const currentView = ref("market")
         <div class="login-card">
             <div class="logo-section">
                 <h2>BizmoPol</h2>
-                <p>{{ isRegisterMode ? 'Załóż nowe konto biznesowe' : 'System zarządzania biznesem online' }}</p>
+                <p>{{ isRegisterMode ? "Załóż nowe konto biznesowe" : "System zarządzania biznesem online" }}</p>
             </div>
 
             <form @submit.prevent="handleAuth" class="login-form">
@@ -95,16 +111,16 @@ const currentView = ref("market")
                 <p v-if="authError" class="auth-error">{{ authError }}</p>
 
                 <button type="submit" class="login-btn">
-                    {{ isRegisterMode ? 'Zarejestruj się' : 'Zaloguj się' }}
+                    {{ isRegisterMode ? "Zarejestruj się" : "Zaloguj się" }}
                 </button>
             </form>
 
             <div class="auth-toggle">
                 <p v-if="!isRegisterMode">
-                    Nie masz konta? <span @click="isRegisterMode = true; authError = ''">Zarejestruj się</span>
+                    Nie masz konta? <span @click="goToRegister">Zarejestruj się</span>
                 </p>
                 <p v-else>
-                    Masz już konto? <span @click="isRegisterMode = false; authError = ''">Zaloguj się</span>
+                    Masz już konto? <span @click="goToLogin">Zaloguj się</span>
                 </p>
             </div>
         </div>
@@ -118,13 +134,13 @@ const currentView = ref("market")
             </div>
             <nav>
                 <ul>
-                    <li @click="currentView = 'market'" :class="{ active: currentView === 'market' }">🏠 BizmoPol Market</li>
-                    <li @click="currentView = 'funnels'" :class="{ active: currentView === 'funnels' }">🚀 Lejki & Landing</li>
-                    <li @click="currentView = 'crm'" :class="{ active: currentView === 'crm' }">👥 CRM & Kontakty</li>
-                    <li @click="currentView = 'comm'" :class="{ active: currentView === 'comm' }">💬 Komunikacja</li>
-                    <li @click="currentView = 'courses'" :class="{ active: currentView === 'courses' }">🎓 Kursy & Portal</li>
-                    <li @click="currentView = 'docs'" :class="{ active: currentView === 'docs' }">✍️ Dokumenty & E-Sign</li>
-                    <li @click="currentView = 'calendar'" :class="{ active: currentView === 'calendar' }">📅 Kalendarz</li>
+                    <li @click="navigate('dashboard')" :class="{ active: currentView === 'dashboard' }">🏠 BizmoPol Market</li>
+                    <li @click="navigate('funnels')" :class="{ active: currentView === 'funnels' }">🚀 Lejki & Landing</li>
+                    <li @click="navigate('contacts')" :class="{ active: currentView === 'contacts' }">👥 CRM & Kontakty</li>
+                    <li @click="navigate('communication')" :class="{ active: currentView === 'communication' }">💬 Komunikacja</li>
+                    <li @click="navigate('courses')" :class="{ active: currentView === 'courses' }">🎓 Kursy & Portal</li>
+                    <li @click="navigate('documents')" :class="{ active: currentView === 'documents' }">✍️ Dokumenty & E-Sign</li>
+                    <li @click="navigate('calendar')" :class="{ active: currentView === 'calendar' }">📅 Kalendarz</li>
                 </ul>
             </nav>
             <div class="sidebar-footer">
@@ -133,7 +149,7 @@ const currentView = ref("market")
         </aside>
 
         <main class="main-content">
-            <section v-if="currentView === 'market'" class="view-section">
+            <section v-if="currentView === 'dashboard'" class="view-section">
                 <h1>Witaj w BizmoPol Market!</h1>
                 <p class="subtitle">Podsumowanie Twojego biznesu online</p>
 
@@ -156,9 +172,9 @@ const currentView = ref("market")
                 <div class="quick-actions">
                     <h3>Szybkie akcje</h3>
                     <div class="btn-group">
-                        <button class="btn" @click="currentView = 'funnels'">+ Nowy Lejek</button>
-                        <button class="btn" @click="currentView = 'crm'">+ Dodaj Leada</button>
-                        <button class="btn" @click="currentView = 'courses'">+ Dodaj Kurs</button>
+                        <button class="btn" @click="navigate('funnels')">+ Nowy Lejek</button>
+                        <button class="btn" @click="navigate('contacts')">+ Dodaj Leada</button>
+                        <button class="btn" @click="navigate('courses')">+ Dodaj Kurs</button>
                     </div>
                 </div>
             </section>
@@ -172,11 +188,11 @@ const currentView = ref("market")
                 </div>
             </section>
 
-            <section v-if="currentView === 'crm'" class="view-section">
+            <section v-if="currentView === 'contacts'" class="view-section">
                 <CrmView :auth-fetch="authFetch" />
             </section>
 
-            <section v-if="currentView === 'comm'" class="view-section">
+            <section v-if="currentView === 'communication'" class="view-section">
                 <h1>Komunikacja wielokanałowa</h1>
                 <div class="list-fill">
                     <div class="item">📧 Dwukierunkowa komunikacja e-mail (Gmail/Outlook Sync)</div>
@@ -194,7 +210,7 @@ const currentView = ref("market")
                 </div>
             </section>
 
-            <section v-if="currentView === 'docs'" class="view-section">
+            <section v-if="currentView === 'documents'" class="view-section">
                 <h1>Dokumenty i E-Signing</h1>
                 <div class="list-fill">
                     <div class="item">📄 Upload plików PDF i HTML</div>
@@ -270,7 +286,7 @@ const currentView = ref("market")
     height: 100vh;
     background: #0f172a;
     color: #f1f5f9;
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     overflow: hidden;
 }
 

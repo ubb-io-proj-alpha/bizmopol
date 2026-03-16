@@ -60,10 +60,6 @@ func main() {
         config.SeedDatabase(db)
     }
 
-    testRepo := repository.NewTestRepository(db)
-    testService := service.NewTestService(testRepo)
-    testHandler := handler.NewTestHandler(testService)
-
     userRepo := repository.NewUserRepository(db)
     authService := service.NewAuthService(userRepo, cfg.JWTSecret)
     authHandler := handler.NewAuthHandler(authService)
@@ -82,13 +78,6 @@ func main() {
         {
             auth.POST("/register", authHandler.Register)
             auth.POST("/login", authHandler.Login)
-        }
-
-        tests := api.Group("/tests")
-        tests.Use(middleware.JWTAuth(cfg.JWTSecret))
-        {
-            tests.GET("/", testHandler.GetAll)
-            tests.POST("/add", testHandler.Create)
         }
 
         contacts := api.Group("/contacts")
