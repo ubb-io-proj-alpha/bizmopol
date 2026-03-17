@@ -12,6 +12,7 @@ type Contact struct {
     Notes       string    `gorm:"type:text" json:"notes"`
     IsGroup     bool      `gorm:"default:false" json:"is_group"`
     GroupID     string    `gorm:"size:36;index" json:"group_id"`
+    LeadScore   int       `gorm:"default:0" json:"lead_score"`
     CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
     UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }

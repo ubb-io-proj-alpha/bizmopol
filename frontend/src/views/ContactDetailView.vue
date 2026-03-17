@@ -126,6 +126,8 @@ async function addNote() {
         showAddNote.value = false
         noteForm.value = { action: "note", description: "" }
         historyPage.value = 1
+        const refreshed = await authFetch("/api/v1/contacts/" + route.params.id)
+        if (refreshed.ok) contact.value = await refreshed.json()
         await loadHistory()
     } catch (e) {
         noteError.value = e.message
@@ -150,6 +152,12 @@ function actionIcon(a) {
     const map = { created: "add_circle", updated: "edit", merged: "merge", note: "sticky_note_2", call: "call", email: "email", meeting: "event" }
     return map[a] || "history"
 }
+
+function scoreColor(score) {
+    if (score >= 70) return "#22c55e"
+    if (score >= 40) return "#f59e0b"
+    return "#ef4444"
+}
 </script>
 
 <template>
@@ -170,6 +178,13 @@ function actionIcon(a) {
                         <span :class="['badge', statusClass(contact.status)]">{{ statusLabel(contact.status) }}</span>
                         <span v-if="isGroup" class="badge badge-group">Grupa / Firma</span>
                     </div>
+                </div>
+                <div class="score-box">
+                    <div class="score-circle" :style="{ borderColor: scoreColor(contact.lead_score) }">
+                        <span class="score-num" :style="{ color: scoreColor(contact.lead_score) }">{{ contact.lead_score }}</span>
+                        <span class="score-lbl">/ 100</span>
+                    </div>
+                    <div class="score-title">Lead Score</div>
                 </div>
             </div>
 
@@ -213,7 +228,10 @@ function actionIcon(a) {
                         <span v-if="m.phone" class="member-detail"><span class="material-icons">phone</span>{{ m.phone }}</span>
                         <span v-if="m.email" class="member-detail"><span class="material-icons">email</span>{{ m.email }}</span>
                     </div>
-                    <span :class="['badge', statusClass(m.status)]">{{ statusLabel(m.status) }}</span>
+                    <div class="member-footer">
+                        <span :class="['badge', statusClass(m.status)]">{{ statusLabel(m.status) }}</span>
+                        <span class="member-score" :style="{ color: scoreColor(m.lead_score) }">Score: {{ m.lead_score }}</span>
+                    </div>
                 </div>
             </div>
             <div v-if="membersTotalPages > 1" class="pagination">
@@ -315,6 +333,16 @@ function actionIcon(a) {
 .name-row h1 { font-size: 1.8rem; color: #f8fafc; }
 .group-badge-icon { font-size: 1.8rem; color: #7c3aed; }
 .badges-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.score-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.score-circle {
+    width: 72px; height: 72px; border-radius: 50%; border: 3px solid;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.score-num { font-size: 1.4rem; font-weight: 800; line-height: 1; }
+.score-lbl { font-size: 0.65rem; color: #64748b; }
+.score-title { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
+
 .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 24px; }
 .detail-item { display: flex; flex-direction: column; gap: 4px; }
 .label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
@@ -341,6 +369,8 @@ function actionIcon(a) {
 .member-details { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .member-detail { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 0.85rem; }
 .member-detail .material-icons { font-size: 0.9rem; color: #38bdf8; }
+.member-footer { display: flex; align-items: center; justify-content: space-between; }
+.member-score { font-size: 0.8rem; font-weight: 700; }
 
 .history-section { margin-top: 32px; }
 .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }

@@ -30,6 +30,7 @@ type ContactResponse struct {
     Notes     string    `json:"notes"`
     IsGroup   bool      `json:"is_group"`
     GroupID   string    `json:"group_id"`
+    LeadScore int       `json:"lead_score"`
     CreatedAt time.Time `json:"created_at"`
     UpdatedAt time.Time `json:"updated_at"`
 }

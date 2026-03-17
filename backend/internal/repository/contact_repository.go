@@ -20,6 +20,8 @@ type ContactRepository interface {
     AddHistory(ctx context.Context, h *model.ContactHistory) error
     ListHistory(ctx context.Context, contactID string) ([]*model.ContactHistory, error)
     ListGroupHistory(ctx context.Context, groupID string, page, pageSize int) ([]*model.ContactHistory, int64, error)
+    CountHistory(ctx context.Context, contactID string) (int64, error)
+    LastHistoryTime(ctx context.Context, contactID string) (*model.ContactHistory, error)
 }
 
 type contactRepository struct {
@@ -70,7 +72,7 @@ func (r *contactRepository) List(ctx context.Context, search, status, sortBy, so
         return nil, 0, err
     }
 
-    allowed := map[string]bool{"name": true, "email": true, "company": true, "status": true, "created_at": true}
+    allowed := map[string]bool{"name": true, "email": true, "company": true, "status": true, "created_at": true, "lead_score": true}
     col := "created_at"
     if allowed[sortBy] {
         col = sortBy
@@ -157,4 +159,22 @@ func (r *contactRepository) ListGroupHistory(ctx context.Context, groupID string
     var items []*model.ContactHistory
     err := q.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&items).Error
     return items, total, err
+}
+
+func (r *contactRepository) CountHistory(ctx context.Context, contactID string) (int64, error) {
+    var count int64
+    err := r.db.WithContext(ctx).Model(&model.ContactHistory{}).Where("contact_id = ?", contactID).Count(&count).Error
+    return count, err
+}
+
+func (r *contactRepository) LastHistoryTime(ctx context.Context, contactID string) (*model.ContactHistory, error) {
+    var h model.ContactHistory
+    err := r.db.WithContext(ctx).Where("contact_id = ?", contactID).Order("created_at DESC").First(&h).Error
+    if err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &h, nil
 }

@@ -1,7 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted } from "vue"
 import { useRouter } from "vue-router"
-import CrudTable from "./CrudTable.vue"
 import { useTableQuery } from "../composables/useTableQuery.js"
 
 const props = defineProps({
@@ -32,15 +31,6 @@ const mergeError = ref("")
 const selectedIds = ref(new Set())
 
 const statuses = ["lead", "prospect", "customer", "inactive"]
-
-const columns = [
-    { key: "_select", label: "", sortable: false },
-    { key: "name", label: "Nazwa", sortable: true, cellClass: "name-cell" },
-    { key: "email", label: "Email" },
-    { key: "phone", label: "Telefon" },
-    { key: "company", label: "Firma", sortable: true },
-    { key: "status", label: "Status", sortable: true },
-]
 
 async function loadContacts() {
     loading.value = true
@@ -209,6 +199,18 @@ function statusClass(s) {
     const map = { lead: "badge-lead", prospect: "badge-prospect", customer: "badge-customer", inactive: "badge-inactive" }
     return map[s] || ""
 }
+
+function scoreColor(score) {
+    if (score >= 70) return "#22c55e"
+    if (score >= 40) return "#f59e0b"
+    return "#ef4444"
+}
+
+function scoreLabel(score) {
+    if (score >= 70) return "Wysoki"
+    if (score >= 40) return "Średni"
+    return "Niski"
+}
 </script>
 
 <template>
@@ -247,6 +249,7 @@ function statusClass(s) {
                 <option value="name">Nazwa</option>
                 <option value="company">Firma</option>
                 <option value="status">Status</option>
+                <option value="lead_score">Lead Score</option>
             </select>
             <button class="btn-sort" @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'; page = 1; loadContacts()">
                 <span class="material-icons sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
@@ -279,6 +282,7 @@ function statusClass(s) {
                         <th>Telefon</th>
                         <th>Firma</th>
                         <th>Status</th>
+                        <th>Lead Score</th>
                         <th>Akcje</th>
                     </tr>
                 </thead>
@@ -299,6 +303,14 @@ function statusClass(s) {
                         <td>{{ row.phone }}</td>
                         <td>{{ row.company }}</td>
                         <td><span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span></td>
+                        <td>
+                            <div class="score-cell">
+                                <div class="score-bar-wrap">
+                                    <div class="score-bar" :style="{ width: row.lead_score + '%', background: scoreColor(row.lead_score) }"></div>
+                                </div>
+                                <span class="score-value" :style="{ color: scoreColor(row.lead_score) }">{{ row.lead_score }}</span>
+                            </div>
+                        </td>
                         <td class="actions-cell">
                             <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
                                 <span class="material-icons">visibility</span>
@@ -469,6 +481,11 @@ function statusClass(s) {
 .badge-prospect { background: #7c3aed; color: #ede9fe; }
 .badge-customer { background: #065f46; color: #a7f3d0; }
 .badge-inactive { background: #374151; color: #9ca3af; }
+
+.score-cell { display: flex; align-items: center; gap: 8px; min-width: 100px; }
+.score-bar-wrap { flex: 1; height: 6px; background: #334155; border-radius: 4px; overflow: hidden; }
+.score-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.score-value { font-size: 0.8rem; font-weight: 700; min-width: 26px; text-align: right; }
 
 .btn-action {
     background: none; border: none; cursor: pointer;

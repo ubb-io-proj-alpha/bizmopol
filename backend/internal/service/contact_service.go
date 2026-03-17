@@ -3,6 +3,7 @@ package service
 import (
     "context"
     "math"
+    "time"
 
     "github.com/google/uuid"
 
@@ -43,6 +44,7 @@ func toContactResponse(c *model.Contact) dto.ContactResponse {
         Notes:     c.Notes,
         IsGroup:   c.IsGroup,
         GroupID:   c.GroupID,
+        LeadScore: c.LeadScore,
         CreatedAt: c.CreatedAt,
         UpdatedAt: c.UpdatedAt,
     }
@@ -59,6 +61,16 @@ func toHistoryResponse(h *model.ContactHistory) dto.ContactHistoryResponse {
     }
 }
 
+func (s *contactService) refreshScore(ctx context.Context, c *model.Contact) {
+    count, _ := s.repo.CountHistory(ctx, c.ID)
+    lastActivity := -1
+    last, _ := s.repo.LastHistoryTime(ctx, c.ID)
+    if last != nil {
+        lastActivity = daysSince(last.CreatedAt)
+    }
+    c.LeadScore = calcLeadScore(c, int(count), lastActivity)
+}
+
 func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequest) (*dto.ContactResponse, error) {
     status := input.Status
     if status == "" {
@@ -73,9 +85,6 @@ func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequ
         Status:  status,
         Notes:   input.Notes,
     }
-    if err := s.repo.Create(ctx, c); err != nil {
-        return nil, ErrInternal
-    }
     userID, _ := ctx.Value("userID").(string)
     _ = s.repo.AddHistory(ctx, &model.ContactHistory{
         ID:          uuid.NewString(),
@@ -83,7 +92,12 @@ func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequ
         Action:      "created",
         Description: "Kontakt został utworzony",
         UserID:      userID,
+        CreatedAt:   time.Now(),
     })
+    s.refreshScore(ctx, c)
+    if err := s.repo.Create(ctx, c); err != nil {
+        return nil, ErrInternal
+    }
     r := toContactResponse(c)
     return &r, nil
 }
@@ -119,9 +133,7 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
         c.Status = input.Status
     }
     c.Notes = input.Notes
-    if err := s.repo.Update(ctx, c); err != nil {
-        return nil, ErrInternal
-    }
+
     userID, _ := ctx.Value("userID").(string)
     desc := "Kontakt został zaktualizowany"
     if input.Status != "" && input.Status != oldStatus {
@@ -133,7 +145,12 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
         Action:      "updated",
         Description: desc,
         UserID:      userID,
+        CreatedAt:   time.Now(),
     })
+    s.refreshScore(ctx, c)
+    if err := s.repo.Update(ctx, c); err != nil {
+        return nil, ErrInternal
+    }
     r := toContactResponse(c)
     return &r, nil
 }
@@ -195,9 +212,6 @@ func (s *contactService) Merge(ctx context.Context, userID string, input dto.Mer
         Status:  status,
         IsGroup: true,
     }
-    if err := s.repo.Create(ctx, group); err != nil {
-        return nil, ErrInternal
-    }
 
     for _, m := range members {
         m.GroupID = group.ID
@@ -210,7 +224,12 @@ func (s *contactService) Merge(ctx context.Context, userID string, input dto.Mer
         Action:      "merged",
         Description: "Połączono " + string(rune('0'+len(members))) + " kontaktów w grupę",
         UserID:      userID,
+        CreatedAt:   time.Now(),
     })
+    s.refreshScore(ctx, group)
+    if err := s.repo.Create(ctx, group); err != nil {
+        return nil, ErrInternal
+    }
 
     r := toContactResponse(group)
     return &r, nil
@@ -276,6 +295,11 @@ func (s *contactService) AddHistory(ctx context.Context, contactID, userID strin
     }
     if err := s.repo.AddHistory(ctx, h); err != nil {
         return nil, ErrInternal
+    }
+    c, err := s.repo.FindByID(ctx, contactID)
+    if err == nil && c != nil {
+        s.refreshScore(ctx, c)
+        _ = s.repo.Update(ctx, c)
     }
     r := toHistoryResponse(h)
     return &r, nil
