@@ -6,7 +6,7 @@ import (
     "backend/internal/model"
 )
 
-func calcLeadScore(c *model.Contact, historyCount int, lastActivityDays int) int {
+func CalcLeadScore(c *model.Contact, historyCount int, lastActivityDays int) int {
     score := 0
 
     switch c.Status {
@@ -60,6 +60,14 @@ func calcLeadScore(c *model.Contact, historyCount int, lastActivityDays int) int
     return score
 }
 
-func daysSince(t time.Time) int {
+func DaysSince(t time.Time) int {
     return int(time.Since(t).Hours() / 24)
+}
+
+func calcLeadScore(c *model.Contact, historyCount int, lastActivityDays int) int {
+    return CalcLeadScore(c, historyCount, lastActivityDays)
+}
+
+func daysSince(t time.Time) int {
+    return DaysSince(t)
 }

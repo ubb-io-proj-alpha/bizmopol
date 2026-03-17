@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"backend/internal/model"
+	"backend/internal/service"
 )
 
 func SeedDatabase(db *gorm.DB) {
@@ -50,6 +51,19 @@ func seedUsers(db *gorm.DB) {
 			slog.Error("SeedDatabase: failed to create user", "email", u.email, "error", err)
 		}
 	}
+}
+
+func calcSeedScore(db *gorm.DB, contactID string, c *model.Contact) int {
+	var count int64
+	db.Model(&model.ContactHistory{}).Where("contact_id = ?", contactID).Count(&count)
+
+	lastActivityDays := -1
+	var last model.ContactHistory
+	if err := db.Where("contact_id = ?", contactID).Order("created_at DESC").First(&last).Error; err == nil {
+		lastActivityDays = service.DaysSince(last.CreatedAt)
+	}
+
+	return service.CalcLeadScore(c, int(count), lastActivityDays)
 }
 
 func seedContacts(db *gorm.DB) {
@@ -112,6 +126,8 @@ func seedContacts(db *gorm.DB) {
 			continue
 		}
 		seedContactHistory(db, id, sc.status, sc.daysAgo, adminID)
+		c.LeadScore = calcSeedScore(db, id, &c)
+		db.Model(&model.Contact{}).Where("id = ?", id).Update("lead_score", c.LeadScore)
 	}
 
 	mergeGroups := []struct {
@@ -174,6 +190,8 @@ func seedContacts(db *gorm.DB) {
 			UserID:      adminID,
 			CreatedAt:   now.AddDate(0, 0, -14),
 		})
+		group.LeadScore = calcSeedScore(db, groupID, &group)
+		db.Model(&model.Contact{}).Where("id = ?", groupID).Update("lead_score", group.LeadScore)
 	}
 
 	extraContacts := []struct {
@@ -248,6 +266,8 @@ func seedContacts(db *gorm.DB) {
 			UserID:      adminID,
 			CreatedAt:   createdAt,
 		})
+		c.LeadScore = calcSeedScore(db, id, &c)
+		db.Model(&model.Contact{}).Where("id = ?", id).Update("lead_score", c.LeadScore)
 	}
 }
 
