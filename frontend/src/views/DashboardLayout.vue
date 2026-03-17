@@ -56,6 +56,9 @@ export default {}
                     <li @click="navigate('contacts')" :class="{ active: currentView === 'contacts' || currentView === 'contactDetail' }">
                         <span class="material-icons nav-icon">group</span> CRM &amp; Kontakty
                     </li>
+                    <li @click="navigate('crmSettings')" :class="{ active: currentView === 'crmSettings' }">
+                        <span class="material-icons nav-icon">tune</span> Ustawienia CRM
+                    </li>
                     <li @click="navigate('communication')" :class="{ active: currentView === 'communication' }">
                         <span class="material-icons nav-icon">chat</span> Komunikacja
                     </li>

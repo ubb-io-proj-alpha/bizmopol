@@ -30,6 +30,9 @@ const showAddNote = ref(false)
 const noteForm = ref({ action: "note", description: "" })
 const noteError = ref("")
 
+const customFields = ref([])
+const hiddenFields = computed(() => customFields.value.filter(f => !f.visible))
+
 const isGroup = computed(() => contact.value?.is_group === true)
 
 const actionLabels = {
@@ -45,9 +48,13 @@ const actionLabels = {
 onMounted(async () => {
     loading.value = true
     try {
-        const res = await authFetch("/api/v1/contacts/" + route.params.id)
-        if (!res.ok) throw new Error("Błąd pobierania kontaktu")
-        contact.value = await res.json()
+        const [cr, fr] = await Promise.all([
+            authFetch("/api/v1/contacts/" + route.params.id),
+            authFetch("/api/v1/custom-fields/"),
+        ])
+        if (!cr.ok) throw new Error("Błąd pobierania kontaktu")
+        contact.value = await cr.json()
+        if (fr.ok) customFields.value = await fr.json()
     } catch (e) {
         error.value = e.message
     } finally {
@@ -58,6 +65,12 @@ onMounted(async () => {
         loadMembers()
     }
 })
+
+function getCustomValue(fieldId) {
+    if (!contact.value?.custom_values) return null
+    const cv = contact.value.custom_values.find(v => v.field_id === fieldId)
+    return cv ? cv.value : null
+}
 
 async function loadHistory() {
     historyLoading.value = true
@@ -177,6 +190,12 @@ function scoreColor(score) {
                     <div class="badges-row">
                         <span :class="['badge', statusClass(contact.status)]">{{ statusLabel(contact.status) }}</span>
                         <span v-if="isGroup" class="badge badge-group">Grupa / Firma</span>
+                        <span
+                            v-for="t in (contact.tags || [])"
+                            :key="t.id"
+                            class="tag-chip"
+                            :style="{ background: t.color + '33', color: t.color, borderColor: t.color }"
+                        >{{ t.name }}</span>
                     </div>
                 </div>
                 <div class="score-box">
@@ -209,6 +228,12 @@ function scoreColor(score) {
                     <span class="label">Ostatnia aktualizacja</span>
                     <span class="value">{{ formatDate(contact.updated_at) }}</span>
                 </div>
+                <template v-for="cf in customFields" :key="cf.id">
+                    <div v-if="getCustomValue(cf.id) !== null" class="detail-item">
+                        <span class="label">{{ cf.name }}</span>
+                        <span class="value">{{ getCustomValue(cf.id) || "—" }}</span>
+                    </div>
+                </template>
             </div>
 
             <div v-if="contact.notes" class="detail-notes">
@@ -224,6 +249,14 @@ function scoreColor(score) {
             <div v-else class="members-grid">
                 <div v-for="m in members" :key="m.id" class="member-card" @click="router.push({ name: 'contactDetail', params: { id: m.id } })">
                     <div class="member-name">{{ m.name }}</div>
+                    <div class="member-tags">
+                        <span
+                            v-for="t in (m.tags || [])"
+                            :key="t.id"
+                            class="tag-chip-small"
+                            :style="{ background: t.color + '33', color: t.color, borderColor: t.color }"
+                        >{{ t.name }}</span>
+                    </div>
                     <div class="member-details">
                         <span v-if="m.phone" class="member-detail"><span class="material-icons">phone</span>{{ m.phone }}</span>
                         <span v-if="m.email" class="member-detail"><span class="material-icons">email</span>{{ m.email }}</span>
@@ -333,6 +366,14 @@ function scoreColor(score) {
 .name-row h1 { font-size: 1.8rem; color: #f8fafc; }
 .group-badge-icon { font-size: 1.8rem; color: #7c3aed; }
 .badges-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag-chip {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.78rem; font-weight: 600; border: 1px solid;
+}
+.tag-chip-small {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 0.72rem; font-weight: 600; border: 1px solid; white-space: nowrap;
+}
 
 .score-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .score-circle {
@@ -365,7 +406,8 @@ function scoreColor(score) {
     cursor: pointer; transition: 0.2s;
 }
 .member-card:hover { border-color: #38bdf8; }
-.member-name { color: #f1f5f9; font-weight: 600; margin-bottom: 8px; }
+.member-name { color: #f1f5f9; font-weight: 600; margin-bottom: 6px; }
+.member-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .member-details { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .member-detail { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 0.85rem; }
 .member-detail .material-icons { font-size: 0.9rem; color: #38bdf8; }

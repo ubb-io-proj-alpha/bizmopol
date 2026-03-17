@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive, onMounted, computed } from "vue"
 import { useRouter } from "vue-router"
 import { useTableQuery } from "../composables/useTableQuery.js"
 
@@ -15,13 +15,19 @@ const totalPages = ref(1)
 const loading = ref(false)
 const error = ref("")
 
+const allTags = ref([])
+const customFields = ref([])
+const visibleFields = computed(() => customFields.value.filter(f => f.visible))
+
 const { search, filterStatus, sortBy, sortDir, page, pageSize, pushQuery, buildParams } = useTableQuery({
     sortBy: "created_at", sortDir: "desc", page: 1, pageSize: 20
 })
 
+const filterTags = ref([])
+
 const showModal = ref(false)
 const editingId = ref(null)
-const form = reactive({ name: "", email: "", phone: "", company: "", status: "lead", notes: "" })
+const form = reactive({ name: "", email: "", phone: "", company: "", status: "lead", notes: "", tagIds: [], customValues: {} })
 const formError = ref("")
 
 const showMergeModal = ref(false)
@@ -32,12 +38,27 @@ const selectedIds = ref(new Set())
 
 const statuses = ["lead", "prospect", "customer", "inactive"]
 
+async function loadMeta() {
+    try {
+        const [tr, fr] = await Promise.all([
+            props.authFetch("/api/v1/tags/"),
+            props.authFetch("/api/v1/custom-fields/"),
+        ])
+        if (tr.ok) allTags.value = await tr.json()
+        if (fr.ok) customFields.value = await fr.json()
+    } catch (_) {}
+}
+
 async function loadContacts() {
     loading.value = true
     error.value = ""
     pushQuery()
     try {
-        const res = await props.authFetch("/api/v1/contacts/?" + buildParams().toString())
+        const params = buildParams()
+        if (filterTags.value.length > 0) {
+            params.set("tags", filterTags.value.join(","))
+        }
+        const res = await props.authFetch("/api/v1/contacts/?" + params.toString())
         if (!res.ok) throw new Error("Błąd pobierania kontaktów")
         const data = await res.json()
         contacts.value = data.data || []
@@ -50,7 +71,10 @@ async function loadContacts() {
     }
 }
 
-onMounted(loadContacts)
+onMounted(async () => {
+    await loadMeta()
+    loadContacts()
+})
 
 function onSearch() {
     page.value = 1
@@ -59,11 +83,8 @@ function onSearch() {
 
 function toggleSelect(id) {
     const next = new Set(selectedIds.value)
-    if (next.has(id)) {
-        next.delete(id)
-    } else {
-        next.add(id)
-    }
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
     selectedIds.value = next
 }
 
@@ -115,14 +136,19 @@ async function doMerge() {
 
 function openCreate() {
     editingId.value = null
-    Object.assign(form, { name: "", email: "", phone: "", company: "", status: "lead", notes: "" })
+    Object.assign(form, { name: "", email: "", phone: "", company: "", status: "lead", notes: "", tagIds: [], customValues: {} })
     formError.value = ""
     showModal.value = true
 }
 
 function openEdit(c) {
     editingId.value = c.id
-    Object.assign(form, { name: c.name, email: c.email, phone: c.phone, company: c.company, status: c.status, notes: c.notes })
+    const tagIds = (c.tags || []).map(t => t.id)
+    const customValues = {}
+    for (const cv of (c.custom_values || [])) {
+        customValues[cv.field_id] = cv.value
+    }
+    Object.assign(form, { name: c.name, email: c.email, phone: c.phone, company: c.company, status: c.status, notes: c.notes, tagIds, customValues })
     formError.value = ""
     showModal.value = true
 }
@@ -138,16 +164,26 @@ async function saveContact() {
         return
     }
     try {
+        const payload = {
+            name: form.name,
+            email: form.email,
+            phone: form.phone,
+            company: form.company,
+            status: form.status,
+            notes: form.notes,
+            tag_ids: form.tagIds,
+            custom_values: form.customValues,
+        }
         let res
         if (editingId.value) {
             res = await props.authFetch("/api/v1/contacts/" + editingId.value, {
                 method: "PUT",
-                body: JSON.stringify(form),
+                body: JSON.stringify(payload),
             })
         } else {
             res = await props.authFetch("/api/v1/contacts/", {
                 method: "POST",
-                body: JSON.stringify(form),
+                body: JSON.stringify(payload),
             })
         }
         if (!res.ok) {
@@ -206,10 +242,28 @@ function scoreColor(score) {
     return "#ef4444"
 }
 
-function scoreLabel(score) {
-    if (score >= 70) return "Wysoki"
-    if (score >= 40) return "Średni"
-    return "Niski"
+function toggleTagFilter(tagName) {
+    const idx = filterTags.value.indexOf(tagName)
+    if (idx === -1) filterTags.value.push(tagName)
+    else filterTags.value.splice(idx, 1)
+    page.value = 1
+    loadContacts()
+}
+
+function toggleFormTag(tagId) {
+    const idx = form.tagIds.indexOf(tagId)
+    if (idx === -1) form.tagIds.push(tagId)
+    else form.tagIds.splice(idx, 1)
+}
+
+function getCustomValue(row, fieldId) {
+    if (!row.custom_values) return ""
+    const cv = row.custom_values.find(v => v.field_id === fieldId)
+    return cv ? cv.value : ""
+}
+
+function sortableCustomField(fieldId) {
+    return false
 }
 </script>
 
@@ -263,6 +317,19 @@ function scoreLabel(score) {
             </select>
         </div>
 
+        <div v-if="allTags.length > 0" class="tag-filters">
+            <span class="tag-filter-label">Filtruj po tagach:</span>
+            <button
+                v-for="t in allTags"
+                :key="t.id"
+                :class="['tag-filter-chip', { active: filterTags.includes(t.name) }]"
+                :style="{ '--tag-color': t.color }"
+                @click="toggleTagFilter(t.name)"
+            >
+                {{ t.name }}
+            </button>
+        </div>
+
         <p v-if="error" class="err-msg">{{ error }}</p>
 
         <div v-if="!loading && contacts.length > 0" class="table-wrap">
@@ -277,12 +344,28 @@ function scoreLabel(score) {
                                 @change="toggleSelectAll"
                             />
                         </th>
-                        <th>Nazwa</th>
+                        <th class="sortable" @click="onSort('name')">
+                            Nazwa
+                            <span v-if="sortBy === 'name'" class="material-icons th-sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
+                        </th>
                         <th>Email</th>
                         <th>Telefon</th>
-                        <th>Firma</th>
-                        <th>Status</th>
-                        <th>Lead Score</th>
+                        <th class="sortable" @click="onSort('company')">
+                            Firma
+                            <span v-if="sortBy === 'company'" class="material-icons th-sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
+                        </th>
+                        <th class="sortable" @click="onSort('status')">
+                            Status
+                            <span v-if="sortBy === 'status'" class="material-icons th-sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
+                        </th>
+                        <th>Tagi</th>
+                        <th class="sortable" @click="onSort('lead_score')">
+                            Lead Score
+                            <span v-if="sortBy === 'lead_score'" class="material-icons th-sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
+                        </th>
+                        <th v-for="cf in visibleFields" :key="cf.id" class="sortable" @click="onSort('custom_' + cf.id)">
+                            {{ cf.name }}
+                        </th>
                         <th>Akcje</th>
                     </tr>
                 </thead>
@@ -303,6 +386,14 @@ function scoreLabel(score) {
                         <td>{{ row.phone }}</td>
                         <td>{{ row.company }}</td>
                         <td><span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span></td>
+                        <td class="tags-cell">
+                            <span
+                                v-for="t in (row.tags || [])"
+                                :key="t.id"
+                                class="tag-chip-small"
+                                :style="{ background: t.color + '33', color: t.color, borderColor: t.color }"
+                            >{{ t.name }}</span>
+                        </td>
                         <td>
                             <div class="score-cell">
                                 <div class="score-bar-wrap">
@@ -310,6 +401,9 @@ function scoreLabel(score) {
                                 </div>
                                 <span class="score-value" :style="{ color: scoreColor(row.lead_score) }">{{ row.lead_score }}</span>
                             </div>
+                        </td>
+                        <td v-for="cf in visibleFields" :key="cf.id">
+                            {{ getCustomValue(row, cf.id) }}
                         </td>
                         <td class="actions-cell">
                             <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
@@ -350,7 +444,7 @@ function scoreLabel(score) {
         <div v-if="showMergeModal" class="modal-overlay" @click.self="showMergeModal = false">
             <div class="modal">
                 <h2>Scal kontakty w grupę</h2>
-                <p class="merge-info">Scalasz {{ selectedIds.size }} kontaktów. Zostaną połączone jako firma/grupa. Historia i dane każdego kontaktu będą widoczne w widoku szczegółów.</p>
+                <p class="merge-info">Scalasz {{ selectedIds.size }} kontaktów.</p>
                 <div class="form-group">
                     <label>Nazwa grupy / firmy *</label>
                     <input v-model="mergeForm.groupName" placeholder="np. ABC Corp" />
@@ -402,6 +496,31 @@ function scoreLabel(score) {
                     <label>Notatki</label>
                     <textarea v-model="form.notes" rows="3" placeholder="Dodatkowe informacje..."></textarea>
                 </div>
+                <div v-if="allTags.length > 0" class="form-group">
+                    <label>Tagi</label>
+                    <div class="tags-picker">
+                        <button
+                            v-for="t in allTags"
+                            :key="t.id"
+                            type="button"
+                            :class="['tag-pick-btn', { selected: form.tagIds.includes(t.id) }]"
+                            :style="{ '--tag-color': t.color }"
+                            @click="toggleFormTag(t.id)"
+                        >{{ t.name }}</button>
+                    </div>
+                </div>
+                <div v-if="customFields.length > 0" class="form-group">
+                    <label>Pola niestandardowe</label>
+                    <div v-for="cf in customFields" :key="cf.id" class="cf-row">
+                        <label class="cf-label">{{ cf.name }}</label>
+                        <input
+                            v-model="form.customValues[cf.id]"
+                            :type="cf.field_type === 'number' ? 'number' : cf.field_type === 'date' ? 'date' : cf.field_type === 'url' ? 'url' : cf.field_type === 'email' ? 'email' : 'text'"
+                            :placeholder="cf.name"
+                            class="cf-input"
+                        />
+                    </div>
+                </div>
                 <p v-if="formError" class="err-msg">{{ formError }}</p>
                 <div class="modal-actions">
                     <button class="btn-secondary" @click="showModal = false">Anuluj</button>
@@ -419,7 +538,7 @@ function scoreLabel(score) {
 .subtitle { color: #94a3b8; font-size: 0.95rem; }
 .header-actions { display: flex; gap: 10px; align-items: center; }
 
-.crm-filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.crm-filters { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .filter-input {
     flex: 1; min-width: 200px; padding: 10px 14px;
     background: #1e293b; border: 1px solid #334155; border-radius: 8px;
@@ -437,6 +556,15 @@ function scoreLabel(score) {
 }
 .btn-sort:hover { border-color: #38bdf8; color: #38bdf8; }
 .sort-icon { font-size: 1rem; }
+
+.tag-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+.tag-filter-label { color: #64748b; font-size: 0.82rem; }
+.tag-filter-chip {
+    padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--tag-color); color: var(--tag-color);
+    background: transparent; transition: 0.15s;
+}
+.tag-filter-chip.active { background: var(--tag-color); color: #fff; }
 
 .btn-primary {
     padding: 10px 20px; background: #38bdf8; border: none;
@@ -457,15 +585,17 @@ function scoreLabel(score) {
 .btn-merge .material-icons { font-size: 1.1rem; }
 
 .err-msg { color: #f87171; font-size: 0.9rem; margin-bottom: 12px; }
-
 .loading, .empty { color: #94a3b8; padding: 40px; text-align: center; }
 .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid #334155; }
 .crud-table { width: 100%; border-collapse: collapse; }
 .crud-table th {
     background: #1e293b; padding: 12px 16px; text-align: left;
     color: #94a3b8; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;
-    border-bottom: 1px solid #334155;
+    border-bottom: 1px solid #334155; white-space: nowrap;
 }
+.crud-table th.sortable { cursor: pointer; user-select: none; }
+.crud-table th.sortable:hover { color: #38bdf8; }
+.th-sort-icon { font-size: 0.85rem; vertical-align: middle; margin-left: 2px; }
 .crud-table td { padding: 14px 16px; border-bottom: 1px solid #1e293b; color: #e2e8f0; font-size: 0.95rem; }
 .crud-table tr:last-child td { border-bottom: none; }
 .crud-table tr:hover td { background: #1e293b44; }
@@ -474,6 +604,11 @@ function scoreLabel(score) {
 .col-check input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: #38bdf8; }
 .name-cell { display: flex; align-items: center; gap: 6px; }
 .group-icon { font-size: 1rem; color: #7c3aed; }
+.tags-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag-chip-small {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 0.72rem; font-weight: 600; border: 1px solid; white-space: nowrap;
+}
 .actions-cell { display: flex; gap: 8px; }
 
 .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
@@ -518,7 +653,7 @@ function scoreLabel(score) {
 }
 .modal {
     background: #1e293b; border: 1px solid #334155; border-radius: 16px;
-    padding: 32px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+    padding: 32px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
 }
 .modal h2 { color: #38bdf8; margin-bottom: 12px; font-size: 1.4rem; }
 .merge-info { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; }
@@ -531,4 +666,20 @@ function scoreLabel(score) {
 }
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #38bdf8; }
 .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+
+.tags-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-pick-btn {
+    padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--tag-color); color: var(--tag-color);
+    background: transparent; transition: 0.15s;
+}
+.tag-pick-btn.selected { background: var(--tag-color); color: #fff; }
+
+.cf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cf-label { color: #94a3b8; font-size: 0.85rem; min-width: 120px; flex-shrink: 0; }
+.cf-input {
+    flex: 1; padding: 8px 10px; background: #0f172a;
+    border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; outline: none; font-size: 0.9rem;
+}
+.cf-input:focus { border-color: #38bdf8; }
 </style>

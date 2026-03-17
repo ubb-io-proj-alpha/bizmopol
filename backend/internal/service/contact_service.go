@@ -26,27 +26,48 @@ type ContactService interface {
 }
 
 type contactService struct {
-    repo repository.ContactRepository
+    repo    repository.ContactRepository
+    tagRepo repository.TagRepository
+    cfRepo  repository.CustomFieldRepository
 }
 
-func NewContactService(r repository.ContactRepository) ContactService {
-    return &contactService{repo: r}
+func NewContactService(r repository.ContactRepository, tr repository.TagRepository, cfr repository.CustomFieldRepository) ContactService {
+    return &contactService{repo: r, tagRepo: tr, cfRepo: cfr}
 }
 
-func toContactResponse(c *model.Contact) dto.ContactResponse {
+func toTagResponse(t model.Tag) dto.TagResponse {
+    return dto.TagResponse{ID: t.ID, Name: t.Name, Color: t.Color}
+}
+
+func toCustomValueResponse(v model.CustomFieldValue, fieldName string) dto.CustomValueResponse {
+    return dto.CustomValueResponse{FieldID: v.CustomFieldID, FieldName: fieldName, Value: v.Value}
+}
+
+func toContactResponse(c *model.Contact, fieldMap map[string]string) dto.ContactResponse {
+    tags := make([]dto.TagResponse, 0, len(c.Tags))
+    for _, t := range c.Tags {
+        tags = append(tags, toTagResponse(t))
+    }
+    cvs := make([]dto.CustomValueResponse, 0, len(c.CustomValues))
+    for _, v := range c.CustomValues {
+        name := fieldMap[v.CustomFieldID]
+        cvs = append(cvs, toCustomValueResponse(v, name))
+    }
     return dto.ContactResponse{
-        ID:        c.ID,
-        Name:      c.Name,
-        Email:     c.Email,
-        Phone:     c.Phone,
-        Company:   c.Company,
-        Status:    c.Status,
-        Notes:     c.Notes,
-        IsGroup:   c.IsGroup,
-        GroupID:   c.GroupID,
-        LeadScore: c.LeadScore,
-        CreatedAt: c.CreatedAt,
-        UpdatedAt: c.UpdatedAt,
+        ID:           c.ID,
+        Name:         c.Name,
+        Email:        c.Email,
+        Phone:        c.Phone,
+        Company:      c.Company,
+        Status:       c.Status,
+        Notes:        c.Notes,
+        IsGroup:      c.IsGroup,
+        GroupID:      c.GroupID,
+        LeadScore:    c.LeadScore,
+        Tags:         tags,
+        CustomValues: cvs,
+        CreatedAt:    c.CreatedAt,
+        UpdatedAt:    c.UpdatedAt,
     }
 }
 
@@ -61,6 +82,15 @@ func toHistoryResponse(h *model.ContactHistory) dto.ContactHistoryResponse {
     }
 }
 
+func (s *contactService) fieldMap(ctx context.Context) map[string]string {
+    fields, _ := s.cfRepo.List(ctx)
+    m := make(map[string]string, len(fields))
+    for _, f := range fields {
+        m[f.ID] = f.Name
+    }
+    return m
+}
+
 func (s *contactService) refreshScore(ctx context.Context, c *model.Contact) {
     count, _ := s.repo.CountHistory(ctx, c.ID)
     lastActivity := -1
@@ -69,6 +99,33 @@ func (s *contactService) refreshScore(ctx context.Context, c *model.Contact) {
         lastActivity = daysSince(last.CreatedAt)
     }
     c.LeadScore = calcLeadScore(c, int(count), lastActivity)
+}
+
+func (s *contactService) applyTags(ctx context.Context, contactID string, tagIDs []string) error {
+    if tagIDs == nil {
+        return nil
+    }
+    tags, err := s.tagRepo.FindByIDs(ctx, tagIDs)
+    if err != nil {
+        return err
+    }
+    return s.repo.SetTags(ctx, contactID, tags)
+}
+
+func (s *contactService) applyCustomValues(ctx context.Context, contactID string, values map[string]string) error {
+    if values == nil {
+        return nil
+    }
+    cvs := make([]model.CustomFieldValue, 0, len(values))
+    for fieldID, val := range values {
+        cvs = append(cvs, model.CustomFieldValue{
+            ID:            uuid.NewString(),
+            ContactID:     contactID,
+            CustomFieldID: fieldID,
+            Value:         val,
+        })
+    }
+    return s.repo.SetCustomValues(ctx, contactID, cvs)
 }
 
 func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequest) (*dto.ContactResponse, error) {
@@ -98,7 +155,14 @@ func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequ
     if err := s.repo.Create(ctx, c); err != nil {
         return nil, ErrInternal
     }
-    r := toContactResponse(c)
+    _ = s.applyTags(ctx, c.ID, input.TagIDs)
+    _ = s.applyCustomValues(ctx, c.ID, input.CustomValues)
+    updated, _ := s.repo.FindByID(ctx, c.ID)
+    if updated == nil {
+        updated = c
+    }
+    fm := s.fieldMap(ctx)
+    r := toContactResponse(updated, fm)
     return &r, nil
 }
 
@@ -110,7 +174,8 @@ func (s *contactService) GetByID(ctx context.Context, id string) (*dto.ContactRe
     if c == nil {
         return nil, nil
     }
-    r := toContactResponse(c)
+    fm := s.fieldMap(ctx)
+    r := toContactResponse(c, fm)
     return &r, nil
 }
 
@@ -151,7 +216,14 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
     if err := s.repo.Update(ctx, c); err != nil {
         return nil, ErrInternal
     }
-    r := toContactResponse(c)
+    _ = s.applyTags(ctx, c.ID, input.TagIDs)
+    _ = s.applyCustomValues(ctx, c.ID, input.CustomValues)
+    updated, _ := s.repo.FindByID(ctx, c.ID)
+    if updated == nil {
+        updated = c
+    }
+    fm := s.fieldMap(ctx)
+    r := toContactResponse(updated, fm)
     return &r, nil
 }
 
@@ -169,13 +241,14 @@ func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.Con
         page = 1
     }
 
-    contacts, total, err := s.repo.List(ctx, q.Search, q.Status, q.SortBy, q.SortDir, page, pageSize)
+    contacts, total, err := s.repo.List(ctx, q.Search, q.Status, q.Tags, q.SortBy, q.SortDir, page, pageSize)
     if err != nil {
         return nil, ErrInternal
     }
+    fm := s.fieldMap(ctx)
     items := make([]dto.ContactResponse, 0, len(contacts))
     for _, c := range contacts {
-        items = append(items, toContactResponse(c))
+        items = append(items, toContactResponse(c, fm))
     }
     totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
     return &dto.ContactListResponse{
@@ -231,7 +304,8 @@ func (s *contactService) Merge(ctx context.Context, userID string, input dto.Mer
         return nil, ErrInternal
     }
 
-    r := toContactResponse(group)
+    fm := s.fieldMap(ctx)
+    r := toContactResponse(group, fm)
     return &r, nil
 }
 
@@ -246,9 +320,10 @@ func (s *contactService) GetGroupMembers(ctx context.Context, groupID string, pa
     if err != nil {
         return nil, ErrInternal
     }
+    fm := s.fieldMap(ctx)
     items := make([]dto.ContactResponse, 0, len(members))
     for _, m := range members {
-        items = append(items, toContactResponse(m))
+        items = append(items, toContactResponse(m, fm))
     }
     totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
     return &dto.GroupMembersResponse{

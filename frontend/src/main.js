@@ -21,6 +21,7 @@ const router = createRouter({
                 { path: "funnels", name: "funnels", component: () => import("./views/FunnelsView.vue") },
                 { path: "contacts", name: "contacts", component: () => import("./views/ContactsView.vue") },
                 { path: "contacts/:id", name: "contactDetail", component: () => import("./views/ContactDetailView.vue") },
+                { path: "crm-settings", name: "crmSettings", component: () => import("./views/CrmSettingsView.vue") },
                 { path: "communication", name: "communication", component: () => import("./views/CommunicationView.vue") },
                 { path: "courses", name: "courses", component: () => import("./views/CoursesView.vue") },
                 { path: "documents", name: "documents", component: () => import("./views/DocumentsView.vue") },

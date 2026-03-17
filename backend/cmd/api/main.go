@@ -52,7 +52,14 @@ func main() {
         slog.Error("Failed to connect to database", "error", err)
     }
 
-    if err := db.AutoMigrate(&model.User{}, &model.Contact{}, &model.ContactHistory{}); err != nil {
+    if err := db.AutoMigrate(
+        &model.User{},
+        &model.Contact{},
+        &model.ContactHistory{},
+        &model.Tag{},
+        &model.CustomField{},
+        &model.CustomFieldValue{},
+    ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
 
@@ -65,8 +72,16 @@ func main() {
     authHandler := handler.NewAuthHandler(authService)
 
     contactRepo := repository.NewContactRepository(db)
-    contactService := service.NewContactService(contactRepo)
+    tagRepo := repository.NewTagRepository(db)
+    cfRepo := repository.NewCustomFieldRepository(db)
+    contactService := service.NewContactService(contactRepo, tagRepo, cfRepo)
     contactHandler := handler.NewContactHandler(contactService)
+
+    tagService := service.NewTagService(tagRepo)
+    tagHandler := handler.NewTagHandler(tagService)
+
+    cfService := service.NewCustomFieldService(cfRepo)
+    cfHandler := handler.NewCustomFieldHandler(cfService)
 
     r := gin.Default()
 
@@ -93,6 +108,24 @@ func main() {
             contacts.POST("/:id/history", contactHandler.AddHistory)
             contacts.GET("/:id/members", contactHandler.GetGroupMembers)
             contacts.GET("/:id/group-history", contactHandler.GetGroupHistory)
+        }
+
+        tags := api.Group("/tags")
+        tags.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            tags.GET("/", tagHandler.List)
+            tags.POST("/", tagHandler.Create)
+            tags.PUT("/:id", tagHandler.Update)
+            tags.DELETE("/:id", tagHandler.Delete)
+        }
+
+        customFields := api.Group("/custom-fields")
+        customFields.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            customFields.GET("/", cfHandler.List)
+            customFields.POST("/", cfHandler.Create)
+            customFields.PUT("/:id", cfHandler.Update)
+            customFields.DELETE("/:id", cfHandler.Delete)
         }
     }
 
