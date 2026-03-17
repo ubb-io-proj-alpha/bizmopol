@@ -23,6 +23,7 @@ type ContactService interface {
     GetGroupHistory(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupHistoryResponse, error)
     AddHistory(ctx context.Context, contactID, userID string, input dto.AddHistoryRequest) (*dto.ContactHistoryResponse, error)
     ListHistory(ctx context.Context, contactID string) ([]dto.ContactHistoryResponse, error)
+    UpdateDnd(ctx context.Context, id string, input dto.DndUpdateRequest) (*dto.ContactResponse, error)
 }
 
 type contactService struct {
@@ -64,6 +65,10 @@ func toContactResponse(c *model.Contact, fieldMap map[string]string) dto.Contact
         IsGroup:      c.IsGroup,
         GroupID:      c.GroupID,
         LeadScore:    c.LeadScore,
+        DndActive:    c.DndActive,
+        DndType:      c.DndType,
+        DndReason:    c.DndReason,
+        DndUntil:     c.DndUntil,
         Tags:         tags,
         CustomValues: cvs,
         CreatedAt:    c.CreatedAt,
@@ -219,6 +224,30 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
     _ = s.applyTags(ctx, c.ID, input.TagIDs)
     _ = s.applyCustomValues(ctx, c.ID, input.CustomValues)
     updated, _ := s.repo.FindByID(ctx, c.ID)
+    if updated == nil {
+        updated = c
+    }
+    fm := s.fieldMap(ctx)
+    r := toContactResponse(updated, fm)
+    return &r, nil
+}
+
+func (s *contactService) UpdateDnd(ctx context.Context, id string, input dto.DndUpdateRequest) (*dto.ContactResponse, error) {
+    c, err := s.repo.FindByID(ctx, id)
+    if err != nil {
+        return nil, ErrInternal
+    }
+    if c == nil {
+        return nil, nil
+    }
+    c.DndActive = input.DndActive
+    c.DndType = input.DndType
+    c.DndReason = input.DndReason
+    c.DndUntil = input.DndUntil
+    if err := s.repo.Update(ctx, c); err != nil {
+        return nil, ErrInternal
+    }
+    updated, _ := s.repo.FindByID(ctx, id)
     if updated == nil {
         updated = c
     }

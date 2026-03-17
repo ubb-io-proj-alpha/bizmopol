@@ -63,32 +63,55 @@ func (r *contactRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *contactRepository) List(ctx context.Context, search, status, tags, sortBy, sortDir string, page, pageSize int) ([]*model.Contact, int64, error) {
-    q := r.db.WithContext(ctx).Model(&model.Contact{}).Where("group_id = ''")
+    q := r.db.WithContext(ctx).Model(&model.Contact{}).Where("contacts.group_id = ''")
 
     if search != "" {
         like := "%" + search + "%"
-        q = q.Where("name LIKE ? OR email LIKE ? OR company LIKE ?", like, like, like)
+        q = q.Where("contacts.name LIKE ? OR contacts.email LIKE ? OR contacts.company LIKE ?", like, like, like)
     }
     if status != "" {
-        q = q.Where("status = ?", status)
+        q = q.Where("contacts.status = ?", status)
     }
     if tags != "" {
         tagNames := strings.Split(tags, ",")
         q = q.Joins("JOIN contact_tags ON contact_tags.contact_id = contacts.id").
             Joins("JOIN tags ON tags.id = contact_tags.tag_id").
             Where("tags.name IN ?", tagNames).
-            Group("contacts.id")
+            Group("contacts.id").
+            Having("COUNT(DISTINCT tags.id) >= ?", len(tagNames))
     }
 
     var total int64
-    if err := q.Count(&total).Error; err != nil {
-        return nil, 0, err
+    countQ := r.db.WithContext(ctx).Model(&model.Contact{}).Where("contacts.group_id = ''")
+    if search != "" {
+        like := "%" + search + "%"
+        countQ = countQ.Where("contacts.name LIKE ? OR contacts.email LIKE ? OR contacts.company LIKE ?", like, like, like)
+    }
+    if status != "" {
+        countQ = countQ.Where("contacts.status = ?", status)
+    }
+    if tags != "" {
+        tagNames := strings.Split(tags, ",")
+        countQ = countQ.Joins("JOIN contact_tags ON contact_tags.contact_id = contacts.id").
+            Joins("JOIN tags ON tags.id = contact_tags.tag_id").
+            Where("tags.name IN ?", tagNames).
+            Group("contacts.id").
+            Having("COUNT(DISTINCT tags.id) >= ?", len(tagNames))
+        var ids []string
+        if err := countQ.Pluck("contacts.id", &ids).Error; err != nil {
+            return nil, 0, err
+        }
+        total = int64(len(ids))
+    } else {
+        if err := countQ.Count(&total).Error; err != nil {
+            return nil, 0, err
+        }
     }
 
     allowed := map[string]bool{"name": true, "email": true, "company": true, "status": true, "created_at": true, "lead_score": true}
-    col := "created_at"
+    col := "contacts.created_at"
     if allowed[sortBy] {
-        col = sortBy
+        col = "contacts." + sortBy
     }
     dir := "DESC"
     if sortDir == "asc" {

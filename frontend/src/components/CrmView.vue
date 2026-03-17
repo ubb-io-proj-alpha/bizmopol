@@ -34,6 +34,11 @@ const showMergeModal = ref(false)
 const mergeForm = reactive({ groupName: "", company: "", status: "customer" })
 const mergeError = ref("")
 
+const showDndModal = ref(false)
+const dndContactId = ref(null)
+const dndForm = reactive({ dnd_active: true, dnd_type: "permanent", dnd_reason: "", dnd_until: "" })
+const dndError = ref("")
+
 const selectedIds = ref(new Set())
 
 const statuses = ["lead", "prospect", "customer", "inactive"]
@@ -157,6 +162,40 @@ function openDetail(id) {
     router.push({ name: "contactDetail", params: { id } })
 }
 
+function openDndModal(c) {
+    dndContactId.value = c.id
+    dndForm.dnd_active = c.dnd_active || false
+    dndForm.dnd_type = c.dnd_type || "permanent"
+    dndForm.dnd_reason = c.dnd_reason || ""
+    dndForm.dnd_until = c.dnd_until ? c.dnd_until.slice(0, 10) : ""
+    dndError.value = ""
+    showDndModal.value = true
+}
+
+async function saveDnd() {
+    dndError.value = ""
+    try {
+        const payload = {
+            dnd_active: dndForm.dnd_active,
+            dnd_type: dndForm.dnd_type,
+            dnd_reason: dndForm.dnd_reason,
+            dnd_until: dndForm.dnd_type === "temporary" && dndForm.dnd_until ? new Date(dndForm.dnd_until).toISOString() : null,
+        }
+        const res = await props.authFetch("/api/v1/contacts/" + dndContactId.value + "/dnd", {
+            method: "PUT",
+            body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+            const d = await res.json()
+            throw new Error(d.error || "Błąd zapisu DND")
+        }
+        showDndModal.value = false
+        await loadContacts()
+    } catch (e) {
+        dndError.value = e.message
+    }
+}
+
 async function saveContact() {
     formError.value = ""
     if (!form.name.trim()) {
@@ -261,10 +300,6 @@ function getCustomValue(row, fieldId) {
     const cv = row.custom_values.find(v => v.field_id === fieldId)
     return cv ? cv.value : ""
 }
-
-function sortableCustomField(fieldId) {
-    return false
-}
 </script>
 
 <template>
@@ -363,14 +398,18 @@ function sortableCustomField(fieldId) {
                             Lead Score
                             <span v-if="sortBy === 'lead_score'" class="material-icons th-sort-icon">{{ sortDir === "asc" ? "arrow_upward" : "arrow_downward" }}</span>
                         </th>
-                        <th v-for="cf in visibleFields" :key="cf.id" class="sortable" @click="onSort('custom_' + cf.id)">
+                        <th v-for="cf in visibleFields" :key="cf.id">
                             {{ cf.name }}
                         </th>
                         <th>Akcje</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="row in contacts" :key="row.id" :class="{ selected: selectedIds.has(row.id) }">
+                    <tr
+                        v-for="row in contacts"
+                        :key="row.id"
+                        :class="{ selected: selectedIds.has(row.id), 'dnd-row': row.dnd_active }"
+                    >
                         <td class="col-check">
                             <input
                                 type="checkbox"
@@ -380,6 +419,7 @@ function sortableCustomField(fieldId) {
                         </td>
                         <td class="name-cell">
                             <span v-if="row.is_group" class="group-icon material-icons" title="Grupa/Firma">corporate_fare</span>
+                            <span v-if="row.dnd_active" class="dnd-icon material-icons" title="Do Not Disturb">do_not_disturb_on</span>
                             {{ row.name }}
                         </td>
                         <td>{{ row.email }}</td>
@@ -412,6 +452,14 @@ function sortableCustomField(fieldId) {
                             <button class="btn-action btn-edit" @click="openEdit(row)" title="Edytuj">
                                 <span class="material-icons">edit</span>
                             </button>
+                            <button
+                                class="btn-action"
+                                :class="row.dnd_active ? 'btn-dnd-active' : 'btn-dnd'"
+                                @click="openDndModal(row)"
+                                title="Do Not Disturb"
+                            >
+                                <span class="material-icons">do_not_disturb_on</span>
+                            </button>
                             <button class="btn-action btn-delete" @click="deleteContact(row.id)" title="Usuń">
                                 <span class="material-icons">delete</span>
                             </button>
@@ -439,6 +487,60 @@ function sortableCustomField(fieldId) {
             <button class="page-btn" :disabled="page >= totalPages" @click="goToPage(page + 1)">
                 <span class="material-icons">chevron_right</span>
             </button>
+        </div>
+
+        <div v-if="showDndModal" class="modal-overlay" @click.self="showDndModal = false">
+            <div class="modal">
+                <h2>Do Not Disturb</h2>
+                <div class="form-group">
+                    <label>Status DND</label>
+                    <div class="toggle-row">
+                        <label class="toggle-label">
+                            <input type="checkbox" v-model="dndForm.dnd_active" class="toggle-input" />
+                            <span class="toggle-track">
+                                <span class="toggle-thumb"></span>
+                            </span>
+                            <span class="toggle-text">{{ dndForm.dnd_active ? "Aktywny (DND włączony)" : "Nieaktywny" }}</span>
+                        </label>
+                    </div>
+                </div>
+                <div v-if="dndForm.dnd_active">
+                    <div class="form-group">
+                        <label>Typ blokady</label>
+                        <div class="dnd-type-group">
+                            <button
+                                :class="['dnd-type-btn', { active: dndForm.dnd_type === 'permanent' }]"
+                                type="button"
+                                @click="dndForm.dnd_type = 'permanent'"
+                            >
+                                <span class="material-icons">block</span>
+                                Permanentny
+                            </button>
+                            <button
+                                :class="['dnd-type-btn', { active: dndForm.dnd_type === 'temporary' }]"
+                                type="button"
+                                @click="dndForm.dnd_type = 'temporary'"
+                            >
+                                <span class="material-icons">schedule</span>
+                                Tymczasowy
+                            </button>
+                        </div>
+                    </div>
+                    <div v-if="dndForm.dnd_type === 'temporary'" class="form-group">
+                        <label>Blokada do dnia</label>
+                        <input type="date" v-model="dndForm.dnd_until" />
+                    </div>
+                    <div class="form-group">
+                        <label>Powód (opcjonalnie)</label>
+                        <textarea v-model="dndForm.dnd_reason" rows="3" placeholder="Np. prośba klienta, rezygnacja..."></textarea>
+                    </div>
+                </div>
+                <p v-if="dndError" class="err-msg">{{ dndError }}</p>
+                <div class="modal-actions">
+                    <button class="btn-secondary" @click="showDndModal = false">Anuluj</button>
+                    <button class="btn-primary" @click="saveDnd">Zapisz</button>
+                </div>
+            </div>
         </div>
 
         <div v-if="showMergeModal" class="modal-overlay" @click.self="showMergeModal = false">
@@ -600,10 +702,13 @@ function sortableCustomField(fieldId) {
 .crud-table tr:last-child td { border-bottom: none; }
 .crud-table tr:hover td { background: #1e293b44; }
 .crud-table tr.selected td { background: #1e293b88; }
+.crud-table tr.dnd-row td { opacity: 0.45; }
+.crud-table tr.dnd-row:hover td { opacity: 0.6; }
 .col-check { width: 40px; padding: 12px 8px !important; }
 .col-check input[type="checkbox"] { cursor: pointer; width: 16px; height: 16px; accent-color: #38bdf8; }
 .name-cell { display: flex; align-items: center; gap: 6px; }
 .group-icon { font-size: 1rem; color: #7c3aed; }
+.dnd-icon { font-size: 1rem; color: #ef4444; }
 .tags-cell { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag-chip-small {
     display: inline-block; padding: 2px 8px; border-radius: 12px;
@@ -631,6 +736,9 @@ function sortableCustomField(fieldId) {
 .btn-detail:hover { background: #1e3a5f; color: #38bdf8; }
 .btn-edit:hover { background: #1e3a5f; color: #38bdf8; }
 .btn-delete:hover { background: #3f1414; color: #f87171; }
+.btn-dnd:hover { background: #3f1414; color: #f87171; }
+.btn-dnd-active { color: #ef4444; }
+.btn-dnd-active:hover { background: #3f1414; color: #f87171; }
 
 .pagination {
     display: flex; align-items: center; justify-content: center;
@@ -682,4 +790,29 @@ function sortableCustomField(fieldId) {
     border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; outline: none; font-size: 0.9rem;
 }
 .cf-input:focus { border-color: #38bdf8; }
+
+.dnd-type-group { display: flex; gap: 10px; }
+.dnd-type-btn {
+    flex: 1; padding: 10px; background: #0f172a; border: 1px solid #334155;
+    border-radius: 8px; color: #94a3b8; cursor: pointer; transition: 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.9rem;
+}
+.dnd-type-btn:hover { border-color: #ef4444; color: #ef4444; }
+.dnd-type-btn.active { border-color: #ef4444; color: #ef4444; background: #3f141422; }
+.dnd-type-btn .material-icons { font-size: 1rem; }
+
+.toggle-row { margin-top: 4px; }
+.toggle-label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.toggle-input { display: none; }
+.toggle-track {
+    width: 44px; height: 24px; background: #334155; border-radius: 12px;
+    position: relative; transition: 0.2s; flex-shrink: 0;
+}
+.toggle-input:checked + .toggle-track { background: #ef4444; }
+.toggle-thumb {
+    position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+    background: white; border-radius: 50%; transition: 0.2s;
+}
+.toggle-input:checked + .toggle-track .toggle-thumb { left: 23px; }
+.toggle-text { color: #e2e8f0; font-size: 0.9rem; }
 </style>

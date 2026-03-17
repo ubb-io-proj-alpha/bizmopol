@@ -108,6 +108,7 @@ func main() {
             contacts.POST("/:id/history", contactHandler.AddHistory)
             contacts.GET("/:id/members", contactHandler.GetGroupMembers)
             contacts.GET("/:id/group-history", contactHandler.GetGroupHistory)
+            contacts.PUT("/:id/dnd", contactHandler.UpdateDnd)
         }
 
         tags := api.Group("/tags")

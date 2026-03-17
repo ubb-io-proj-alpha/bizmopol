@@ -154,3 +154,22 @@ func (h *ContactHandler) GetGroupHistory(c *gin.Context) {
     }
     c.JSON(http.StatusOK, result)
 }
+
+func (h *ContactHandler) UpdateDnd(c *gin.Context) {
+    id := c.Param("id")
+    var input dto.DndUpdateRequest
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    result, err := h.service.UpdateDnd(c, id, input)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+        return
+    }
+    if result == nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+        return
+    }
+    c.JSON(http.StatusOK, result)
+}

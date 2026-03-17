@@ -24,6 +24,13 @@ type ContactUpdateRequest struct {
     CustomValues map[string]string `json:"custom_values"`
 }
 
+type DndUpdateRequest struct {
+    DndActive bool       `json:"dnd_active"`
+    DndType   string     `json:"dnd_type"`
+    DndReason string     `json:"dnd_reason"`
+    DndUntil  *time.Time `json:"dnd_until"`
+}
+
 type TagResponse struct {
     ID    string `json:"id"`
     Name  string `json:"name"`
@@ -47,6 +54,10 @@ type ContactResponse struct {
     IsGroup      bool                  `json:"is_group"`
     GroupID      string                `json:"group_id"`
     LeadScore    int                   `json:"lead_score"`
+    DndActive    bool                  `json:"dnd_active"`
+    DndType      string                `json:"dnd_type"`
+    DndReason    string                `json:"dnd_reason"`
+    DndUntil     *time.Time            `json:"dnd_until"`
     Tags         []TagResponse         `json:"tags"`
     CustomValues []CustomValueResponse `json:"custom_values"`
     CreatedAt    time.Time             `json:"created_at"`
