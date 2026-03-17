@@ -15,21 +15,22 @@ import (
     "backend/internal/handler"
     "backend/internal/config"
     "backend/internal/model"
+    "backend/internal/middleware"
 
     "github.com/gin-contrib/cors"
     "github.com/gin-gonic/gin"
 
-	"github.com/nentgroup/slog-prettylogger"
+    "github.com/nentgroup/slog-prettylogger"
 )
 
 
 func initLogger(cfg *config.Config) {
-    var handler slog.Handler
-    
+    var h slog.Handler
+
     if cfg.AppEnvironment == "production" {
-        handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+        h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
     } else {
-        handler = prettylogger.NewHandler(os.Stdout, prettylogger.HandlerOptions{
+        h = prettylogger.NewHandler(os.Stdout, prettylogger.HandlerOptions{
             SlogOpts: slog.HandlerOptions{
                 AddSource: true,
                 Level:     slog.LevelDebug,
@@ -38,8 +39,7 @@ func initLogger(cfg *config.Config) {
         })
     }
 
-
-    slog.SetDefault(slog.New(handler))
+    slog.SetDefault(slog.New(h))
 }
 
 func main() {
@@ -50,66 +50,74 @@ func main() {
     db, err := config.ConnectDB(cfg.DBType, cfg.DBURL)
     if err != nil {
         slog.Error("Failed to connect to database", "error", err)
-	}
+    }
 
-    // migrations, should be good enough for now
-    // later we can use other migration tools
-    if err := db.AutoMigrate(&model.Test{}); err != nil {
-		slog.Error("Failed to migrate database", "error", err)
-	}
+    if err := db.AutoMigrate(&model.Test{}, &model.User{}); err != nil {
+        slog.Error("Failed to migrate database", "error", err)
+    }
+
+    if cfg.AppEnvironment == "development" {
+        config.SeedDatabase(db)
+    }
 
     testRepo := repository.NewTestRepository(db)
     testService := service.NewTestService(testRepo)
-	testHandler := handler.NewTestHandler(testService)
+    testHandler := handler.NewTestHandler(testService)
 
-    // use logger from gin
+    userRepo := repository.NewUserRepository(db)
+    authService := service.NewAuthService(userRepo, cfg.JWTSecret)
+    authHandler := handler.NewAuthHandler(authService)
+
     r := gin.Default()
 
-    // Enable CORS for frontend
-    if cfg.AppEnvironment != "production" {
-        r.Use(cors.Default())
-    }
+    // tutaj usunalem warunek
+    // ze ENV musi byc prod
+    r.Use(cors.Default())
 
     api := r.Group("/api/v1")
     {
+        auth := api.Group("/auth")
+        {
+            auth.POST("/register", authHandler.Register)
+            auth.POST("/login", authHandler.Login)
+        }
+
         tests := api.Group("/tests")
+        tests.Use(middleware.JWTAuth(cfg.JWTSecret))
         {
             tests.GET("/", testHandler.GetAll)
             tests.POST("/add", testHandler.Create)
         }
     }
-    server := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
 
-	// Run server in a goroutine so it doesn't block shutdown logic
+    server := &http.Server{
+        Addr:         ":" + cfg.Port,
+        Handler:      r,
+        ReadTimeout:  10 * time.Second,
+        WriteTimeout: 10 * time.Second,
+    }
+
     go func() {
         slog.Info("Server started", "port", cfg.Port)
-
         if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
             slog.Error("Server listen failed", "error", err)
             os.Exit(1)
         }
     }()
 
-	// Wait for interrupt signal to gracefully shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	slog.Info("Shutting down server...")
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+    slog.Info("Shutting down server...")
 
-	// Context with 5-second timeout for shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Server forced to shutdown:", "error", err)
+    if err := server.Shutdown(ctx); err != nil {
+        slog.Error("Server forced to shutdown:", "error", err)
         os.Exit(1)
+    }
 
-	}
-
-	slog.Info("Server exiting")
+    slog.Info("Server exiting")
 }
+
