@@ -54,13 +54,17 @@ func main() {
 
     // migrations, should be good enough for now
     // later we can use other migration tools
-    if err := db.AutoMigrate(&model.Test{}); err != nil {
+    if err := db.AutoMigrate(&model.Test{}, &model.Pipeline{}, &model.Stage{}, &model.Lead{}); err != nil {
 		slog.Error("Failed to migrate database", "error", err)
 	}
 
     testRepo := repository.NewTestRepository(db)
     testService := service.NewTestService(testRepo)
 	testHandler := handler.NewTestHandler(testService)
+
+	pipelineRepo := repository.NewPipelineRepository(db)
+	pipelineService := service.NewPipelineService(pipelineRepo)
+	pipelineHandler := handler.NewPipelineHandler(pipelineService)
 
     // use logger from gin
     r := gin.Default()
@@ -76,6 +80,31 @@ func main() {
         {
             tests.GET("/", testHandler.GetAll)
             tests.POST("/add", testHandler.Create)
+        }
+
+        pipelines := api.Group("/pipelines")
+        {
+            pipelines.POST("/", pipelineHandler.CreatePipeline)
+            pipelines.GET("/", pipelineHandler.GetUserPipelines)
+            pipelines.GET("/:id", pipelineHandler.GetPipeline)
+            pipelines.PUT("/:id", pipelineHandler.UpdatePipeline)
+            pipelines.DELETE("/:id", pipelineHandler.DeletePipeline)
+
+            stages := pipelines.Group("/:id/stages")
+            {
+                stages.POST("/", pipelineHandler.CreateStage)
+                stages.PUT("/:stageId", pipelineHandler.UpdateStage)
+                stages.PUT("/:stageId/position", pipelineHandler.UpdateStagePosition)
+                stages.DELETE("/:stageId", pipelineHandler.DeleteStage)
+            }
+
+            leads := pipelines.Group("/:id/leads")
+            {
+                leads.POST("/", pipelineHandler.CreateLead)
+                leads.PUT("/:leadId", pipelineHandler.UpdateLead)
+                leads.PUT("/:leadId/move", pipelineHandler.MoveLeadToStage)
+                leads.DELETE("/:leadId", pipelineHandler.DeleteLead)
+            }
         }
     }
     server := &http.Server{

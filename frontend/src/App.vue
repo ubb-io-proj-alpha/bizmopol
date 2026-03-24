@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import PipelineBoard from '@/components/PipelineBoard.vue'
 
 // --- LOGIKA DOSTĘPU (AUTH) ---
 const isLoggedIn = ref(false)
@@ -20,6 +21,7 @@ const handleAuth = () => {
 
 // --- STEROWANIE WIDOKAMI PANELU ---
 const currentView = ref('market')
+const selectedPipelineId = ref(1) // Demo ID
 </script>
 
 <template>
@@ -115,13 +117,8 @@ const currentView = ref('market')
         </div>
       </section>
 
-      <section v-if="currentView === 'funnels'" class="view-section">
-        <h1>Lejki Sprzedaży i Landing Pages</h1>
-        <div class="grid-fill">
-          <div class="feature-card"><h3>Builder</h3><p>Drag-and-drop builder stron i lejków </p></div>
-          <div class="feature-card"><h3>Opt-in</h3><p>Formularze zapisu z integracją CRM </p></div>
-          <div class="feature-card"><h3>Testy A/B</h3><p>Split-testing / A/B i statystyki konwersji </p></div>
-        </div>
+      <section v-if="currentView === 'funnels'" class="view-section pipeline-view">
+        <PipelineBoard :pipelineId="selectedPipelineId" />
       </section>
 
       <section v-if="currentView === 'crm'" class="view-section">
@@ -180,16 +177,16 @@ const currentView = ref('market')
   align-items: center;
   height: 100vh;
   width: 100vw;
-  background: #0f172a;
+  background: #2c3e50;
 }
 .login-card {
-  background: #1e293b;
+  background: #1a2a3a;
   padding: 40px;
   border-radius: 16px;
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-  border: 1px solid #334155;
+  box-shadow: none;
+  border: none;
   text-align: center;
 }
 .login-form { margin-top: 25px; }
@@ -199,8 +196,8 @@ const currentView = ref('market')
   width: 100%;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid #334155;
-  background: #0f172a;
+  border: 1px solid #4a5f7f;
+  background: #2c3e50;
   color: white;
   outline: none;
 }
@@ -215,7 +212,6 @@ const currentView = ref('market')
   font-weight: bold;
   font-size: 1rem;
   cursor: pointer;
-  transition: 0.2s;
 }
 .login-btn:hover { background: #7dd3fc; }
 .auth-toggle { margin-top: 20px; font-size: 0.9rem; color: #94a3b8; }
@@ -226,7 +222,7 @@ const currentView = ref('market')
   display: flex; 
   width: 100vw;
   height: 100vh; 
-  background: #0f172a; 
+  background: #2c3e50; 
   color: #f1f5f9; 
   font-family: 'Inter', sans-serif;
   overflow: hidden;
@@ -235,9 +231,8 @@ const currentView = ref('market')
 .sidebar { 
   width: 280px; 
   min-width: 280px;
-  background: #1e293b; 
+  background: #2c3e50; 
   padding: 20px; 
-  border-right: 1px solid #334155; 
   display: flex;
   flex-direction: column;
 }
@@ -251,7 +246,6 @@ const currentView = ref('market')
   margin: 8px 0; 
   border-radius: 8px; 
   cursor: pointer; 
-  transition: 0.2s; 
   list-style: none; 
 }
 .sidebar li:hover { background: #334155; }
@@ -266,7 +260,6 @@ const currentView = ref('market')
   padding: 10px;
   border-radius: 8px;
   cursor: pointer;
-  transition: 0.2s;
 }
 .logout-link:hover { background: #ef4444; color: white; }
 
@@ -274,7 +267,7 @@ const currentView = ref('market')
   flex: 1; 
   padding: 40px; 
   overflow-y: auto; 
-  background: #0f172a;
+  background: #2c3e50;
 }
 
 .view-section { width: 100%; max-width: 1400px; margin: 0 auto; }
@@ -290,4 +283,9 @@ const currentView = ref('market')
 h1 { font-size: 2.8rem; margin-bottom: 10px; color: #f8fafc; }
 .subtitle { color: #94a3b8; font-size: 1.1rem; }
 h3 { color: #38bdf8; margin-bottom: 10px; }
+
+.pipeline-view {
+  padding: 0 !important;
+  overflow: hidden;
+}
 </style>
