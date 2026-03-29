@@ -1,4 +1,6 @@
 #!/bin/sh
+set -xe
+
 rm -f ./build/.env
 cp .env ./build/.env
 go mod download
