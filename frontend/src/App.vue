@@ -1,27 +1,132 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import PipelineBoard from '@/components/PipelineBoard.vue'
+import { authAPI, clearToken, getToken, pipelineAPI, setToken } from '@/services/api'
 
-// --- LOGIKA DOSTĘPU (AUTH) ---
-const isLoggedIn = ref(false)
-const isRegisterMode = ref(false) // Przełącznik między Logowaniem a Rejestracją
-
+const isLoggedIn = ref(Boolean(getToken()))
+const isRegisterMode = ref(false)
 const email = ref('')
 const password = ref('')
 const name = ref('')
+const authError = ref('')
+const currentView = ref('market')
+const pipelines = ref([])
+const selectedPipelineId = ref(null)
+const isLoadingPipelines = ref(false)
+const isCreatingPipeline = ref(false)
+const showCreatePipelineModal = ref(false)
+const newPipelineName = ref('')
 
-// Funkcja obsługująca wejście (Logowanie/Rejestracja)
-const handleAuth = () => {
-  if (email.value && password.value) {
-    isLoggedIn.value = true
-  } else {
-    alert('Proszę wypełnić wymagane pola.')
+const resetAuthForm = () => {
+  email.value = ''
+  password.value = ''
+  name.value = ''
+}
+
+const syncSelectedPipeline = (items) => {
+  if (!items.length) {
+    selectedPipelineId.value = null
+    return
+  }
+
+  const selectedStillExists = items.some((pipeline) => pipeline.id === selectedPipelineId.value)
+  if (!selectedStillExists) {
+    selectedPipelineId.value = items[0].id
   }
 }
 
-// --- STEROWANIE WIDOKAMI PANELU ---
-const currentView = ref('market')
-const selectedPipelineId = ref(1) // Demo ID
+const loadPipelines = async () => {
+  isLoadingPipelines.value = true
+
+  try {
+    const data = await pipelineAPI.getPipelines()
+    pipelines.value = data
+    syncSelectedPipeline(data)
+  } catch (error) {
+    if (error.status === 401) {
+      logout('Sesja wygasła. Zaloguj się ponownie.')
+      return
+    }
+    throw error
+  } finally {
+    isLoadingPipelines.value = false
+  }
+}
+
+const handleAuth = async () => {
+  authError.value = ''
+
+  if (!email.value || !password.value || (isRegisterMode.value && !name.value)) {
+    authError.value = 'Proszę wypełnić wymagane pola.'
+    return
+  }
+
+  try {
+    const payload = isRegisterMode.value
+      ? { email: email.value, password: password.value, name: name.value }
+      : { email: email.value, password: password.value }
+
+    const response = isRegisterMode.value
+      ? await authAPI.register(payload)
+      : await authAPI.login(payload)
+
+    setToken(response.token)
+    isLoggedIn.value = true
+    resetAuthForm()
+    await loadPipelines()
+  } catch (error) {
+    authError.value = error.data?.error || 'Błąd autoryzacji.'
+  }
+}
+
+const logout = (message = '') => {
+  clearToken()
+  isLoggedIn.value = false
+  currentView.value = 'market'
+  pipelines.value = []
+  selectedPipelineId.value = null
+  password.value = ''
+  authError.value = message
+}
+
+const openCreatePipelineModal = () => {
+  newPipelineName.value = ''
+  showCreatePipelineModal.value = true
+}
+
+const createPipeline = async () => {
+  const pipelineName = newPipelineName.value.trim()
+  if (!pipelineName) {
+    alert('Wpisz nazwę lejka.')
+    return
+  }
+
+  try {
+    isCreatingPipeline.value = true
+    const pipeline = await pipelineAPI.createPipeline(pipelineName)
+    await loadPipelines()
+    selectedPipelineId.value = pipeline.id
+    currentView.value = 'funnels'
+    newPipelineName.value = ''
+    showCreatePipelineModal.value = false
+  } catch (error) {
+    alert(error.data?.error || 'Nie udało się utworzyć lejka.')
+  } finally {
+    isCreatingPipeline.value = false
+  }
+}
+
+onMounted(async () => {
+  if (!isLoggedIn.value) {
+    return
+  }
+
+  try {
+    await loadPipelines()
+  } catch (error) {
+    authError.value = error.data?.error || 'Nie udało się pobrać lejków.'
+  }
+})
 </script>
 
 <template>
@@ -53,6 +158,8 @@ const selectedPipelineId = ref(1) // Demo ID
         </button>
       </form>
 
+      <p v-if="authError" class="auth-error">{{ authError }}</p>
+
       <div class="auth-toggle">
         <p v-if="!isRegisterMode">
           Nie masz konta? <span @click="isRegisterMode = true">Zarejestruj się</span>
@@ -82,7 +189,7 @@ const selectedPipelineId = ref(1) // Demo ID
         </ul>
       </nav>
       <div class="sidebar-footer">
-        <button @click="isLoggedIn = false" class="logout-link">🚪 Wyloguj się</button>
+        <button @click="logout()" class="logout-link">🚪 Wyloguj się</button>
       </div>
     </aside>
 
@@ -118,7 +225,35 @@ const selectedPipelineId = ref(1) // Demo ID
       </section>
 
       <section v-if="currentView === 'funnels'" class="view-section pipeline-view">
-        <PipelineBoard :pipelineId="selectedPipelineId" />
+        <div class="funnels-toolbar">
+          <div>
+            <h1>Lejki & Landing</h1>
+            <p class="subtitle">Pracuj na realnych pipeline'ach powiązanych z Twoim kontem.</p>
+          </div>
+          <div class="funnels-actions">
+            <select
+              v-model="selectedPipelineId"
+              class="pipeline-select"
+              :disabled="isLoadingPipelines || !pipelines.length"
+            >
+              <option :value="null" disabled>Wybierz lejek</option>
+              <option v-for="pipeline in pipelines" :key="pipeline.id" :value="pipeline.id">
+                {{ pipeline.name }}
+              </option>
+            </select>
+            <button class="btn" @click="openCreatePipelineModal">+ Nowy Lejek</button>
+          </div>
+        </div>
+
+        <div v-if="isLoadingPipelines" class="empty-state">
+          <h3>Ładowanie lejków...</h3>
+        </div>
+        <div v-else-if="!pipelines.length" class="empty-state">
+          <h3>Nie masz jeszcze żadnego lejka</h3>
+          <p>Utwórz pierwszy pipeline, aby zacząć zarządzać stage'ami i leadami.</p>
+          <button class="btn" @click="openCreatePipelineModal">Utwórz lejek</button>
+        </div>
+        <PipelineBoard v-else-if="selectedPipelineId !== null" :pipelineId="selectedPipelineId" />
       </section>
 
       <section v-if="currentView === 'crm'" class="view-section">
@@ -165,6 +300,25 @@ const selectedPipelineId = ref(1) // Demo ID
           <div class="feature-card"><h3>Strefy</h3><p>Inteligentny wybór strefy czasowej i blokowanie godzin </p></div>
         </div>
       </section>
+
+      <div v-if="showCreatePipelineModal" class="modal">
+        <form class="modal-content" @submit.prevent="createPipeline">
+          <h2>Nowy lejek</h2>
+          <input v-model="newPipelineName" type="text" placeholder="Nazwa pipeline'u" />
+          <div class="modal-buttons">
+            <button type="submit" class="btn" :disabled="isCreatingPipeline">
+              {{ isCreatingPipeline ? 'Dodawanie...' : 'Dodaj' }}
+            </button>
+            <button
+              type="button"
+              @click="showCreatePipelineModal = false"
+              class="logout-link modal-cancel"
+            >
+              Anuluj
+            </button>
+          </div>
+        </form>
+      </div>
     </main>
   </div>
 </template>
@@ -214,6 +368,7 @@ const selectedPipelineId = ref(1) // Demo ID
   cursor: pointer;
 }
 .login-btn:hover { background: #7dd3fc; }
+.auth-error { margin-top: 16px; color: #fca5a5; font-size: 0.95rem; }
 .auth-toggle { margin-top: 20px; font-size: 0.9rem; color: #94a3b8; }
 .auth-toggle span { color: #38bdf8; cursor: pointer; text-decoration: underline; font-weight: bold; }
 
@@ -287,5 +442,75 @@ h3 { color: #38bdf8; margin-bottom: 10px; }
 .pipeline-view {
   padding: 0 !important;
   overflow: hidden;
+}
+
+.funnels-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 40px 0;
+}
+
+.funnels-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.pipeline-select {
+  min-width: 240px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #4a5f7f;
+  background: #1e293b;
+  color: white;
+}
+
+.empty-state {
+  margin: 40px;
+  padding: 32px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  background: #1e293b;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.modal-content {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border-radius: 16px;
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+
+.modal-content input {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #4a5f7f;
+  background: #2c3e50;
+  color: white;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.modal-cancel {
+  width: auto;
 }
 </style>

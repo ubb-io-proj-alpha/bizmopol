@@ -1,42 +1,105 @@
-import axios from 'axios'
+const API_BASE_URL = "/api/v1"
+export const TOKEN_KEY = "jwt_token"
 
-// W dev mode: proxy to backendu, w production: relative path
-const API_BASE_URL = '/api/v1'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+async function request(path, options = {}) {
+  const headers = {
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.headers || {}),
+  }
 
-// Pipeline API
-export const pipelineAPI = {
-  createPipeline: (name) => apiClient.post('/pipelines', { name }),
-  getPipelines: () => apiClient.get('/pipelines'),
-  getPipeline: (id) => apiClient.get(`/pipelines/${id}`),
-  updatePipeline: (id, name) => apiClient.put(`/pipelines/${id}`, { name }),
-  deletePipeline: (id) => apiClient.delete(`/pipelines/${id}`),
+  const token = getToken()
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
 
-  // Stages
-  createStage: (pipelineId, name, position = 0) =>
-    apiClient.post(`/pipelines/${pipelineId}/stages`, { name, pipeline_id: pipelineId, position }),
-  updateStage: (pipelineId, stageId, name) =>
-    apiClient.put(`/pipelines/${pipelineId}/stages/${stageId}`, { name }),
-  updateStagePosition: (pipelineId, stageId, position) =>
-    apiClient.put(`/pipelines/${pipelineId}/stages/${stageId}/position`, { position }),
-  deleteStage: (pipelineId, stageId) =>
-    apiClient.delete(`/pipelines/${pipelineId}/stages/${stageId}`),
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  })
 
-  // Leads
-  createLead: (pipelineId, name, email, phone, stageId = null) =>
-    apiClient.post(`/pipelines/${pipelineId}/leads`, { name, email, phone, stage_id: stageId }),
-  updateLead: (pipelineId, leadId, name, email, phone) =>
-    apiClient.put(`/pipelines/${pipelineId}/leads/${leadId}`, { name, email, phone }),
-  moveLeadToStage: (pipelineId, leadId, stageId, position) =>
-    apiClient.put(`/pipelines/${pipelineId}/leads/${leadId}/move`, { stage_id: stageId, position }),
-  deleteLead: (pipelineId, leadId) =>
-    apiClient.delete(`/pipelines/${pipelineId}/leads/${leadId}`),
+  const rawBody = await response.text()
+  const data = rawBody ? JSON.parse(rawBody) : null
+
+  if (!response.ok) {
+    const error = new Error(data?.error || "Request failed")
+    error.status = response.status
+    error.data = data
+    throw error
+  }
+
+  return data
 }
 
-export default apiClient
+export const authAPI = {
+  register: (payload) =>
+    request("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  login: (payload) =>
+    request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+}
+
+export const pipelineAPI = {
+  createPipeline: (name) =>
+    request("/pipelines/", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  getPipelines: () => request("/pipelines/"),
+  getPipeline: (id) => request(`/pipelines/${id}`),
+  updatePipeline: (id, name) =>
+    request(`/pipelines/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+  deletePipeline: (id) =>
+    request(`/pipelines/${id}`, {
+      method: "DELETE",
+    }),
+  createStage: (pipelineId, name, position = 0) =>
+    request(`/pipelines/${pipelineId}/stages/`, {
+      method: "POST",
+      body: JSON.stringify({ name, position }),
+    }),
+  updateStage: (pipelineId, stageId, name) =>
+    request(`/pipelines/${pipelineId}/stages/${stageId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    }),
+  updateStagePosition: (pipelineId, stageId, position) =>
+    request(`/pipelines/${pipelineId}/stages/${stageId}/position`, {
+      method: "PUT",
+      body: JSON.stringify({ position }),
+    }),
+  deleteStage: (pipelineId, stageId) =>
+    request(`/pipelines/${pipelineId}/stages/${stageId}`, {
+      method: "DELETE",
+    }),
+  createLead: (pipelineId, name, email, phone, stageId) =>
+    request(`/pipelines/${pipelineId}/leads/`, {
+      method: "POST",
+      body: JSON.stringify({ name, email, phone, stage_id: stageId }),
+    }),
+  updateLead: (pipelineId, leadId, name, email, phone) =>
+    request(`/pipelines/${pipelineId}/leads/${leadId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, email, phone }),
+    }),
+  moveLeadToStage: (pipelineId, leadId, stageId, position) =>
+    request(`/pipelines/${pipelineId}/leads/${leadId}/move`, {
+      method: "PUT",
+      body: JSON.stringify({ stage_id: stageId, position }),
+    }),
+  deleteLead: (pipelineId, leadId) =>
+    request(`/pipelines/${pipelineId}/leads/${leadId}`, {
+      method: "DELETE",
+    }),
+}
