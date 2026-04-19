@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"backend/internal/dto"
 	"backend/internal/service"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type PipelineHandler struct {
@@ -17,20 +19,59 @@ func NewPipelineHandler(service *service.PipelineService) *PipelineHandler {
 	return &PipelineHandler{service: service}
 }
 
+func getAuthenticatedUserID(c *gin.Context) (string, bool) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authenticated user"})
+		return "", false
+	}
+
+	userIDStr, ok := userID.(string)
+	if !ok || userIDStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authenticated user"})
+		return "", false
+	}
+
+	return userIDStr, true
+}
+
+func parseUintParam(c *gin.Context, param string, errorMessage string) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param(param), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errorMessage})
+		return 0, false
+	}
+
+	return uint(id), true
+}
+
+func handlePipelineError(c *gin.Context, err error, notFoundMessage string) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": notFoundMessage})
+	case errors.Is(err, service.ErrStageIDRequired):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Stage ID is required"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+}
+
 // Pipeline endpoints
 func (h *PipelineHandler) CreatePipeline(c *gin.Context) {
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
 	var req dto.CreatePipelineRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// TODO: Extract userID from JWT token
-	userID := uint(1) // Placeholder
-
 	pipeline, err := h.service.CreatePipeline(req.Name, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Pipeline not found")
 		return
 	}
 
@@ -38,15 +79,19 @@ func (h *PipelineHandler) CreatePipeline(c *gin.Context) {
 }
 
 func (h *PipelineHandler) GetPipeline(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
 		return
 	}
 
-	pipeline, err := h.service.GetPipeline(uint(id))
+	id, ok := parseUintParam(c, "id", "Invalid ID")
+	if !ok {
+		return
+	}
+
+	pipeline, err := h.service.GetPipeline(id, userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Pipeline not found"})
+		handlePipelineError(c, err, "Pipeline not found")
 		return
 	}
 
@@ -54,12 +99,14 @@ func (h *PipelineHandler) GetPipeline(c *gin.Context) {
 }
 
 func (h *PipelineHandler) GetUserPipelines(c *gin.Context) {
-	// TODO: Extract userID from JWT token
-	userID := uint(1) // Placeholder
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
 
 	pipelines, err := h.service.GetUserPipelines(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Pipelines not found")
 		return
 	}
 
@@ -67,15 +114,19 @@ func (h *PipelineHandler) GetUserPipelines(c *gin.Context) {
 }
 
 func (h *PipelineHandler) DeletePipeline(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
 		return
 	}
 
-	err = h.service.DeletePipeline(uint(id))
+	id, ok := parseUintParam(c, "id", "Invalid ID")
+	if !ok {
+		return
+	}
+
+	err := h.service.DeletePipeline(id, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Pipeline not found")
 		return
 	}
 
@@ -83,9 +134,13 @@ func (h *PipelineHandler) DeletePipeline(c *gin.Context) {
 }
 
 func (h *PipelineHandler) UpdatePipeline(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	id, ok := parseUintParam(c, "id", "Invalid ID")
+	if !ok {
 		return
 	}
 
@@ -95,9 +150,9 @@ func (h *PipelineHandler) UpdatePipeline(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdatePipeline(uint(id), req.Name)
+	err := h.service.UpdatePipeline(id, userID, req.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Pipeline not found")
 		return
 	}
 
@@ -106,15 +161,25 @@ func (h *PipelineHandler) UpdatePipeline(c *gin.Context) {
 
 // Stage endpoints
 func (h *PipelineHandler) CreateStage(c *gin.Context) {
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
 	var req dto.CreateStageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	stage, err := h.service.CreateStage(req.Name, req.PipelineID, req.Position)
+	stage, err := h.service.CreateStage(req.Name, pipelineID, userID, req.Position)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Pipeline not found")
 		return
 	}
 
@@ -129,9 +194,18 @@ func (h *PipelineHandler) CreateStage(c *gin.Context) {
 }
 
 func (h *PipelineHandler) UpdateStagePosition(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("stageId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Stage ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	stageID, ok := parseUintParam(c, "stageId", "Invalid Stage ID")
+	if !ok {
 		return
 	}
 
@@ -141,9 +215,9 @@ func (h *PipelineHandler) UpdateStagePosition(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdateStagePosition(uint(id), req.Position)
+	err := h.service.UpdateStagePosition(stageID, pipelineID, userID, req.Position)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Stage not found")
 		return
 	}
 
@@ -151,15 +225,24 @@ func (h *PipelineHandler) UpdateStagePosition(c *gin.Context) {
 }
 
 func (h *PipelineHandler) DeleteStage(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("stageId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
 		return
 	}
 
-	err = h.service.DeleteStage(uint(id))
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	stageID, ok := parseUintParam(c, "stageId", "Invalid Stage ID")
+	if !ok {
+		return
+	}
+
+	err := h.service.DeleteStage(stageID, pipelineID, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Stage not found")
 		return
 	}
 
@@ -167,9 +250,18 @@ func (h *PipelineHandler) DeleteStage(c *gin.Context) {
 }
 
 func (h *PipelineHandler) UpdateStage(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("stageId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Stage ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	stageID, ok := parseUintParam(c, "stageId", "Invalid Stage ID")
+	if !ok {
 		return
 	}
 
@@ -179,9 +271,9 @@ func (h *PipelineHandler) UpdateStage(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdateStage(uint(id), req.Name)
+	err := h.service.UpdateStage(stageID, pipelineID, userID, req.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Stage not found")
 		return
 	}
 
@@ -190,15 +282,25 @@ func (h *PipelineHandler) UpdateStage(c *gin.Context) {
 
 // Lead endpoints
 func (h *PipelineHandler) CreateLead(c *gin.Context) {
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
 	var req dto.CreateLeadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	lead, err := h.service.CreateLead(req.Name, req.Email, req.Phone, req.StageID)
+	lead, err := h.service.CreateLead(req.Name, req.Email, req.Phone, pipelineID, req.StageID, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Lead or stage not found")
 		return
 	}
 
@@ -206,9 +308,18 @@ func (h *PipelineHandler) CreateLead(c *gin.Context) {
 }
 
 func (h *PipelineHandler) MoveLeadToStage(c *gin.Context) {
-	leadID, err := strconv.ParseUint(c.Param("leadId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Lead ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	leadID, ok := parseUintParam(c, "leadId", "Invalid Lead ID")
+	if !ok {
 		return
 	}
 
@@ -218,9 +329,9 @@ func (h *PipelineHandler) MoveLeadToStage(c *gin.Context) {
 		return
 	}
 
-	err = h.service.MoveLeadToStage(uint(leadID), req.StageID, req.Position)
+	err := h.service.MoveLeadToStage(leadID, pipelineID, userID, req.StageID, req.Position)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Lead or stage not found")
 		return
 	}
 
@@ -228,15 +339,24 @@ func (h *PipelineHandler) MoveLeadToStage(c *gin.Context) {
 }
 
 func (h *PipelineHandler) DeleteLead(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("leadId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
 		return
 	}
 
-	err = h.service.DeleteLead(uint(id))
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	leadID, ok := parseUintParam(c, "leadId", "Invalid Lead ID")
+	if !ok {
+		return
+	}
+
+	err := h.service.DeleteLead(leadID, pipelineID, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Lead not found")
 		return
 	}
 
@@ -244,9 +364,18 @@ func (h *PipelineHandler) DeleteLead(c *gin.Context) {
 }
 
 func (h *PipelineHandler) UpdateLead(c *gin.Context) {
-	leadID, err := strconv.ParseUint(c.Param("leadId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Lead ID"})
+	userID, ok := getAuthenticatedUserID(c)
+	if !ok {
+		return
+	}
+
+	pipelineID, ok := parseUintParam(c, "id", "Invalid pipeline ID")
+	if !ok {
+		return
+	}
+
+	leadID, ok := parseUintParam(c, "leadId", "Invalid Lead ID")
+	if !ok {
 		return
 	}
 
@@ -256,9 +385,9 @@ func (h *PipelineHandler) UpdateLead(c *gin.Context) {
 		return
 	}
 
-	err = h.service.UpdateLead(uint(leadID), req.Name, req.Email, req.Phone)
+	err := h.service.UpdateLead(leadID, pipelineID, userID, req.Name, req.Email, req.Phone)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		handlePipelineError(c, err, "Lead not found")
 		return
 	}
 

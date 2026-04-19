@@ -10,16 +10,16 @@ type UpdatePipelineRequest struct {
 }
 
 type PipelineResponse struct {
-	ID        uint          `json:"id"`
-	Name      string        `json:"name"`
+	ID        uint            `json:"id"`
+	Name      string          `json:"name"`
 	Stages    []StageResponse `json:"stages"`
-	CreatedAt string        `json:"created_at"`
+	CreatedAt string          `json:"created_at"`
 }
 
 // Stage DTOs
 type CreateStageRequest struct {
 	Name       string `json:"name" binding:"required"`
-	PipelineID uint   `json:"pipeline_id" binding:"required"`
+	PipelineID uint   `json:"pipeline_id"`
 	Position   int    `json:"position"`
 }
 
@@ -28,15 +28,15 @@ type UpdateStageRequest struct {
 }
 
 type StageResponse struct {
-	ID        uint          `json:"id"`
-	Name      string        `json:"name"`
-	Position  int           `json:"position"`
+	ID        uint           `json:"id"`
+	Name      string         `json:"name"`
+	Position  int            `json:"position"`
 	Leads     []LeadResponse `json:"leads"`
-	CreatedAt string        `json:"created_at"`
+	CreatedAt string         `json:"created_at"`
 }
 
 type UpdateStagePositionRequest struct {
-	Position int `json:"position" binding:"required"`
+	Position int `json:"position"`
 }
 
 // Lead DTOs
@@ -65,5 +65,5 @@ type LeadResponse struct {
 
 type MoveLeadRequest struct {
 	StageID  *uint `json:"stage_id"`
-	Position int   `json:"position" binding:"required"`
+	Position int   `json:"position"`
 }

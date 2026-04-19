@@ -5,7 +5,7 @@ import "time"
 type Pipeline struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name      string    `gorm:"size:255;not null" json:"name"`
-	UserID    uint      `gorm:"not null;index" json:"user_id"`
+	UserID    string    `gorm:"size:36;not null;index" json:"user_id"`
 	Stages    []Stage   `gorm:"foreignKey:PipelineID;constraint:OnDelete:CASCADE" json:"stages"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`

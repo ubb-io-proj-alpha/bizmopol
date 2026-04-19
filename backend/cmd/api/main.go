@@ -15,6 +15,7 @@ import (
     "backend/internal/handler"
     "backend/internal/config"
     "backend/internal/model"
+    "backend/internal/middleware"
 
     "github.com/gin-contrib/cors"
     "github.com/gin-gonic/gin"
@@ -54,13 +55,17 @@ func main() {
 
     // migrations, should be good enough for now
     // later we can use other migration tools
-    if err := db.AutoMigrate(&model.Test{}, &model.Pipeline{}, &model.Stage{}, &model.Lead{}); err != nil {
+    if err := db.AutoMigrate(&model.User{}, &model.Test{}, &model.Pipeline{}, &model.Stage{}, &model.Lead{}); err != nil {
 		slog.Error("Failed to migrate database", "error", err)
 	}
 
     testRepo := repository.NewTestRepository(db)
     testService := service.NewTestService(testRepo)
 	testHandler := handler.NewTestHandler(testService)
+
+    userRepo := repository.NewUserRepository(db)
+    authService := service.NewAuthService(userRepo, cfg.JWTSecret)
+    authHandler := handler.NewAuthHandler(authService)
 
 	pipelineRepo := repository.NewPipelineRepository(db)
 	pipelineService := service.NewPipelineService(pipelineRepo)
@@ -76,13 +81,21 @@ func main() {
 
     api := r.Group("/api/v1")
     {
+        auth := api.Group("/auth")
+        {
+            auth.POST("/register", authHandler.Register)
+            auth.POST("/login", authHandler.Login)
+        }
+
         tests := api.Group("/tests")
+        tests.Use(middleware.JWTAuth(cfg.JWTSecret))
         {
             tests.GET("/", testHandler.GetAll)
             tests.POST("/add", testHandler.Create)
         }
 
         pipelines := api.Group("/pipelines")
+        pipelines.Use(middleware.JWTAuth(cfg.JWTSecret))
         {
             pipelines.POST("/", pipelineHandler.CreatePipeline)
             pipelines.GET("/", pipelineHandler.GetUserPipelines)
