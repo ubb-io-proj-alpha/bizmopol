@@ -24,13 +24,25 @@
           >
             <div class="lead-info" @click="selectLead(lead)">
               <div class="lead-name">{{ lead.name }}</div>
-              <div class="lead-email" v-if="lead.email">{{ lead.email }}</div>
-              <div class="lead-phone" v-if="lead.phone">{{ lead.phone }}</div>
+              <div v-if="lead.email" class="lead-email">{{ lead.email }}</div>
+              <div v-if="lead.phone" class="lead-phone">{{ lead.phone }}</div>
             </div>
-            <div class="lead-actions">              <button class="btn-edit-lead" @click.stop="openEditLeadModal(lead)" title="Edytuj">✏️</button>              <select class="move-select" @change="(e) => moveLeadToStage(lead.id, parseInt(e.target.value), stage.id)" :value="stage.id">
-                <option :value="stage.id" disabled>Przenieś do...</option>
-                <option v-for="s in pipeline.stages" :key="s.id" :value="s.id">{{ s.name }}</option>
-              </select>
+
+            <div class="lead-actions">
+              <button
+                class="btn-edit-lead"
+                @click.stop="openEditLeadModal(lead)"
+                title="Edytuj"
+              >
+                ✏️
+              </button>
+              <button
+                class="btn-move-lead"
+                :disabled="pipeline.stages.length < 2"
+                @click.stop="openMoveLeadModal(lead, stage)"
+              >
+                Przenieś
+              </button>
               <button class="btn-delete-lead" @click="deleteLead(lead.id, stage.id)">×</button>
             </div>
           </div>
@@ -40,7 +52,6 @@
       </div>
     </div>
 
-    <!-- Add Stage Modal -->
     <div v-if="showAddStageModal" class="modal">
       <div class="modal-content">
         <h2>Nowy Stage</h2>
@@ -52,7 +63,6 @@
       </div>
     </div>
 
-    <!-- Add Lead Modal -->
     <div v-if="showAddLeadModalActive" class="modal">
       <div class="modal-content">
         <h2>Nowy Lead</h2>
@@ -66,7 +76,6 @@
       </div>
     </div>
 
-    <!-- Edit Lead Modal -->
     <div v-if="showEditLeadModalActive && editingLead" class="modal">
       <div class="modal-content">
         <h2>Edytuj Lead</h2>
@@ -79,11 +88,51 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showMoveLeadModalActive && movingLead" class="modal">
+      <div class="modal-content">
+        <h2>Przenieś Lead</h2>
+        <p class="move-lead-copy">
+          Przenosisz <strong>{{ movingLead.name }}</strong> ze stage'a
+          <strong>{{ movingLead.fromStageName }}</strong>.
+        </p>
+
+        <div v-if="moveStageOptions.length" class="move-stage-options">
+          <button
+            v-for="stage in moveStageOptions"
+            :key="stage.id"
+            type="button"
+            class="move-stage-option"
+            :class="{ selected: selectedMoveStageId === stage.id }"
+            @click="selectedMoveStageId = stage.id"
+          >
+            {{ stage.name }}
+          </button>
+        </div>
+        <p v-else class="move-lead-empty">
+          Dodaj przynajmniej jeszcze jeden stage, aby przenieść tego leada.
+        </p>
+
+        <div class="modal-buttons">
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="selectedMoveStageId === null || isMovingLead"
+            @click="confirmLeadMove"
+          >
+            {{ isMovingLead ? 'Przenoszenie...' : 'Potwierdź przeniesienie' }}
+          </button>
+          <button type="button" class="btn-secondary" @click="closeMoveLeadModal">
+            Anuluj
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { pipelineAPI } from '@/services/api'
 
 const props = defineProps({
@@ -97,21 +146,37 @@ const pipeline = ref({ name: '', stages: [] })
 const showAddStageModal = ref(false)
 const showAddLeadModalActive = ref(false)
 const showEditLeadModalActive = ref(false)
+const showMoveLeadModalActive = ref(false)
 const newStageName = ref('')
 const newLeadName = ref('')
 const newLeadEmail = ref('')
 const newLeadPhone = ref('')
 const activeStageId = ref(null)
 const editingLead = ref(null)
+const movingLead = ref(null)
+const selectedMoveStageId = ref(null)
+const isMovingLead = ref(false)
 
-onMounted(async () => {
-  await loadPipeline()
+const moveStageOptions = computed(() => {
+  if (!movingLead.value) {
+    return []
+  }
+
+  return pipeline.value.stages.filter((stage) => stage.id !== movingLead.value.fromStageId)
 })
 
-const loadPipeline = async () => {
+watch(
+  () => props.pipelineId,
+  async () => {
+    await loadPipeline()
+  },
+  { immediate: true }
+)
+
+async function loadPipeline() {
   try {
-    const response = await pipelineAPI.getPipeline(props.pipelineId)
-    pipeline.value = response.data
+    const data = await pipelineAPI.getPipeline(props.pipelineId)
+    pipeline.value = data
   } catch (error) {
     console.error('Error loading pipeline:', error)
   }
@@ -124,27 +189,25 @@ const addStage = async () => {
   }
 
   try {
-    const response = await pipelineAPI.createStage(
+    const stage = await pipelineAPI.createStage(
       props.pipelineId,
       newStageName.value.trim(),
       pipeline.value.stages.length
     )
-    
-    if (response.data) {
-      const newStage = {
-        id: response.data.id,
-        name: response.data.name,
-        position: response.data.position || pipeline.value.stages.length,
-        leads: response.data.leads || []
-      }
-      pipeline.value.stages.push(newStage)
+
+    if (stage) {
+      pipeline.value.stages.push({
+        id: stage.id,
+        name: stage.name,
+        position: stage.position ?? pipeline.value.stages.length,
+        leads: stage.leads || [],
+      })
       newStageName.value = ''
       showAddStageModal.value = false
     }
   } catch (error) {
     console.error('Error adding stage:', error)
-    console.log('Response:', error.response?.data)
-    alert('Błąd: ' + (error.response?.data?.error || error.message))
+    alert('Błąd: ' + (error.data?.error || error.message))
   }
 }
 
@@ -153,7 +216,7 @@ const deleteStage = async (stageId) => {
 
   try {
     await pipelineAPI.deleteStage(props.pipelineId, stageId)
-    pipeline.value.stages = pipeline.value.stages.filter(s => s.id !== stageId)
+    pipeline.value.stages = pipeline.value.stages.filter((stage) => stage.id !== stageId)
   } catch (error) {
     console.error('Error deleting stage:', error)
   }
@@ -165,48 +228,102 @@ const showAddLeadModal = (stageId) => {
 }
 
 const addLead = async () => {
-  if (!newLeadName.value) return
+  if (!newLeadName.value.trim()) {
+    alert('Wpisz nazwę leada')
+    return
+  }
 
   try {
-    const response = await pipelineAPI.createLead(
+    const lead = await pipelineAPI.createLead(
       props.pipelineId,
-      newLeadName.value,
+      newLeadName.value.trim(),
       newLeadEmail.value,
       newLeadPhone.value,
       activeStageId.value
     )
-    const stage = pipeline.value.stages.find(s => s.id === activeStageId.value)
+
+    const stage = pipeline.value.stages.find((candidate) => candidate.id === activeStageId.value)
     if (stage) {
-      stage.leads.push(response.data)
+      stage.leads.push(lead)
     }
+
     newLeadName.value = ''
     newLeadEmail.value = ''
     newLeadPhone.value = ''
     showAddLeadModalActive.value = false
   } catch (error) {
     console.error('Error adding lead:', error)
+    alert('Błąd: ' + (error.data?.error || error.message))
+  }
+}
+
+const openMoveLeadModal = (lead, stage) => {
+  movingLead.value = {
+    id: lead.id,
+    name: lead.name,
+    fromStageId: stage.id,
+    fromStageName: stage.name,
+  }
+  selectedMoveStageId.value = moveStageOptions.value[0]?.id ?? null
+  showMoveLeadModalActive.value = true
+}
+
+const closeMoveLeadModal = () => {
+  showMoveLeadModalActive.value = false
+  movingLead.value = null
+  selectedMoveStageId.value = null
+}
+
+const confirmLeadMove = async () => {
+  if (!movingLead.value || selectedMoveStageId.value === null) {
+    return
+  }
+
+  isMovingLead.value = true
+
+  try {
+    const moved = await moveLeadToStage(
+      movingLead.value.id,
+      selectedMoveStageId.value,
+      movingLead.value.fromStageId
+    )
+    if (moved) {
+      closeMoveLeadModal()
+    }
+  } finally {
+    isMovingLead.value = false
   }
 }
 
 const moveLeadToStage = async (leadId, toStageId, fromStageId) => {
-  if (toStageId === fromStageId) return
+  if (toStageId === fromStageId) return false
 
   try {
-    const fromStage = pipeline.value.stages.find(s => s.id === fromStageId)
-    const toStage = pipeline.value.stages.find(s => s.id === toStageId)
-    
-    const lead = fromStage.leads.find(l => l.id === leadId)
-    if (lead && toStage) {
-      // Optimistic update
-      fromStage.leads = fromStage.leads.filter(l => l.id !== leadId)
-      toStage.leads.push(lead)
-      
-      // Backend update
-      await pipelineAPI.moveLeadToStage(props.pipelineId, leadId, toStageId, toStage.leads.length - 1)
+    const toStage = pipeline.value.stages.find((stage) => stage.id === toStageId)
+
+    if (!toStage) {
+      console.error('Inconsistent pipeline state: target stage not found when moving lead', {
+        leadId,
+        fromStageId,
+        toStageId,
+      })
+      await loadPipeline()
+      return false
     }
+
+    await pipelineAPI.moveLeadToStage(
+      props.pipelineId,
+      leadId,
+      toStageId,
+      toStage.leads.length
+    )
+    await loadPipeline()
+    return true
   } catch (error) {
     console.error('Error moving lead:', error)
-    await loadPipeline() // Reload on error
+    alert('Nie udało się przenieść leada.')
+    await loadPipeline()
+    return false
   }
 }
 
@@ -215,9 +332,9 @@ const deleteLead = async (leadId, stageId) => {
 
   try {
     await pipelineAPI.deleteLead(props.pipelineId, leadId)
-    const stage = pipeline.value.stages.find(s => s.id === stageId)
+    const stage = pipeline.value.stages.find((candidate) => candidate.id === stageId)
     if (stage) {
-      stage.leads = stage.leads.filter(l => l.id !== leadId)
+      stage.leads = stage.leads.filter((lead) => lead.id !== leadId)
     }
   } catch (error) {
     console.error('Error deleting lead:', error)
@@ -227,7 +344,9 @@ const deleteLead = async (leadId, stageId) => {
 const openEditLeadModal = (lead) => {
   editingLead.value = {
     ...lead,
-    originalStageId: pipeline.value.stages.find(s => s.leads.some(l => l.id === lead.id))?.id
+    originalStageId: pipeline.value.stages.find((stage) =>
+      stage.leads.some((candidate) => candidate.id === lead.id)
+    )?.id,
   }
   showEditLeadModalActive.value = true
 }
@@ -247,10 +366,11 @@ const updateLead = async () => {
       editingLead.value.phone
     )
 
-    // Update local state
-    const stage = pipeline.value.stages.find(s => s.id === editingLead.value.originalStageId)
+    const stage = pipeline.value.stages.find(
+      (candidate) => candidate.id === editingLead.value.originalStageId
+    )
     if (stage) {
-      const lead = stage.leads.find(l => l.id === editingLead.value.id)
+      const lead = stage.leads.find((candidate) => candidate.id === editingLead.value.id)
       if (lead) {
         lead.name = editingLead.value.name
         lead.email = editingLead.value.email
@@ -267,7 +387,6 @@ const updateLead = async () => {
 }
 
 const selectLead = (lead) => {
-  // Placeholder for lead detail modal
   console.log('Selected lead:', lead)
 }
 </script>
@@ -384,19 +503,13 @@ const selectLead = (lead) => {
 }
 
 .btn-delete-lead {
-  position: absolute;
-  top: 4px;
-  right: 4px;
   background: transparent;
   border: none;
   color: #ef4444;
   font-size: 1.2rem;
   cursor: pointer;
-  display: none;
-}
-
-.lead-card:hover .btn-delete-lead {
-  display: block;
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 .lead-actions {
@@ -421,19 +534,24 @@ const selectLead = (lead) => {
   color: #7dd3fc;
 }
 
-.move-select {
-  padding: 6px 8px;
-  background: #1e293b;
+.btn-move-lead {
+  background: rgba(56, 189, 248, 0.12);
   border: 1px solid #38bdf8;
-  border-radius: 4px;
-  color: #f1f5f9;
+  color: #e0f2fe;
+  border-radius: 6px;
+  padding: 6px 10px;
   cursor: pointer;
   font-size: 0.85rem;
+  transition: all 0.2s;
 }
 
-.move-select option {
-  background: #0f172a;
-  color: #f1f5f9;
+.btn-move-lead:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.btn-move-lead:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .btn-add-lead {
@@ -488,6 +606,41 @@ const selectLead = (lead) => {
   font-size: 1.8rem;
 }
 
+.move-lead-copy,
+.move-lead-empty {
+  margin: 0 0 20px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.move-stage-options {
+  display: grid;
+  gap: 12px;
+}
+
+.move-stage-option {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f1f5f9;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.move-stage-option:hover {
+  border-color: #38bdf8;
+  background: #162235;
+}
+
+.move-stage-option.selected {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.14);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12);
+}
+
 .modal-content input {
   width: 100%;
   padding: 12px 16px;
@@ -540,6 +693,13 @@ const selectLead = (lead) => {
 
 .btn-primary:active {
   transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .btn-secondary {
