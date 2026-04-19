@@ -25,7 +25,6 @@ import (
     "github.com/nentgroup/slog-prettylogger"
 )
 
-
 func initLogger(cfg *config.Config) {
     var h slog.Handler
 
@@ -65,6 +64,7 @@ func main() {
         &model.Tag{},
         &model.CustomField{},
         &model.CustomFieldValue{},
+<<<<<<< HEAD
         &model.Pipeline{},
         &model.Stage{},
         &model.ContactStage{},
@@ -79,6 +79,9 @@ func main() {
         &model.Document{},
         &model.Signature{},
         &model.SignatureLog{},
+        &model.Funnel{},
+        &model.Page{},
+        &model.FunnelVisit{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -103,6 +106,7 @@ func main() {
     cfService := service.NewCustomFieldService(cfRepo)
     cfHandler := handler.NewCustomFieldHandler(cfService)
 
+<<<<<<< HEAD
     pipelineRepo := repository.NewPipelineRepository(db)
     pipelineService := service.NewPipelineService(pipelineRepo, contactRepo)
     pipelineHandler := handler.NewPipelineHandler(pipelineService)
@@ -123,6 +127,10 @@ func main() {
     docRepo := repository.NewDocumentRepository(db)
     docService := service.NewDocumentService(docRepo, contactRepo, wsHub)
     docHandler := handler.NewDocumentHandler(docService)
+
+    funnelRepo := repository.NewFunnelRepository(db)
+    funnelService := service.NewFunnelService(funnelRepo, contactService)
+    funnelHandler := handler.NewFunnelHandler(funnelService)
 
     r := gin.Default()
 
@@ -288,6 +296,25 @@ func main() {
         }
 
         api.GET("/ws", middleware.JWTAuth(cfg.JWTSecret), wsHub.HandleWS)
+
+        funnels := api.Group("/funnels")
+        funnels.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            funnels.GET("/", funnelHandler.ListFunnels)
+            funnels.POST("/", funnelHandler.CreateFunnel)
+            funnels.GET("/:id", funnelHandler.GetFunnel)
+            funnels.PUT("/:id", funnelHandler.UpdateFunnel)
+            funnels.DELETE("/:id", funnelHandler.DeleteFunnel)
+            funnels.POST("/:id/pages", funnelHandler.CreatePage)
+            funnels.PUT("/pages/:pageId", funnelHandler.UpdatePage)
+            funnels.DELETE("/pages/:pageId", funnelHandler.DeletePage)
+        }
+    }
+
+    public := r.Group("/public/v1")
+    {
+        public.GET("/funnels/resolve", funnelHandler.Resolve)
+        public.POST("/funnels/submit", funnelHandler.Submit)
     }
 
     workerCtx, workerCancel := context.WithCancel(context.Background())
