@@ -64,7 +64,6 @@ func main() {
         &model.Tag{},
         &model.CustomField{},
         &model.CustomFieldValue{},
-<<<<<<< HEAD
         &model.Pipeline{},
         &model.Stage{},
         &model.ContactStage{},
@@ -106,7 +105,6 @@ func main() {
     cfService := service.NewCustomFieldService(cfRepo)
     cfHandler := handler.NewCustomFieldHandler(cfService)
 
-<<<<<<< HEAD
     pipelineRepo := repository.NewPipelineRepository(db)
     pipelineService := service.NewPipelineService(pipelineRepo, contactRepo)
     pipelineHandler := handler.NewPipelineHandler(pipelineService)
