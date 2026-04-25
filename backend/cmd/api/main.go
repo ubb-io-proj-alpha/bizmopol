@@ -62,6 +62,11 @@ func main() {
         &model.Pipeline{},
         &model.Stage{},
         &model.ContactStage{},
+        &model.EmailThread{},
+        &model.EmailMessage{},
+        &model.EmailTemplate{},
+        &model.BulkEmailJob{},
+        &model.EmailSignature{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -90,6 +95,10 @@ func main() {
     pipelineService := service.NewPipelineService(pipelineRepo, contactRepo)
     pipelineHandler := handler.NewPipelineHandler(pipelineService)
 
+    commRepo := repository.NewCommunicationRepository(db)
+    commService := service.NewCommunicationService(commRepo)
+    commHandler := handler.NewCommunicationHandler(commService)
+
     r := gin.Default()
 
     r.Use(cors.Default())
@@ -116,6 +125,7 @@ func main() {
             contacts.GET("/:id/members", contactHandler.GetGroupMembers)
             contacts.GET("/:id/group-history", contactHandler.GetGroupHistory)
             contacts.PUT("/:id/dnd", contactHandler.UpdateDnd)
+            contacts.GET("/:id/threads", commHandler.GetContactThreads)
         }
 
         tags := api.Group("/tags")
@@ -149,6 +159,53 @@ func main() {
             pipelines.POST("/:id/stages", pipelineHandler.CreateStage)
             pipelines.PUT("/:id/stages/:stage_id", pipelineHandler.UpdateStage)
             pipelines.DELETE("/:id/stages/:stage_id", pipelineHandler.DeleteStage)
+		}
+
+        comm := api.Group("/communication")
+        comm.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            comm.GET("/stats", commHandler.GetStats)
+            comm.POST("/sync", commHandler.SyncInbox)
+
+            threads := comm.Group("/threads")
+            {
+                threads.GET("/", commHandler.ListThreads)
+                threads.POST("/", commHandler.SendEmail)
+                threads.GET("/:id", commHandler.GetThread)
+                threads.DELETE("/:id", commHandler.DeleteThread)
+                threads.POST("/:id/reply", commHandler.ReplyToThread)
+                threads.PUT("/:id/read", commHandler.MarkRead)
+                threads.PUT("/:id/archive", commHandler.ArchiveThread)
+                threads.PUT("/:id/status", commHandler.UpdateThreadStatus)
+            }
+
+            messages := comm.Group("/messages")
+            {
+                messages.PUT("/:id/star", commHandler.StarMessage)
+            }
+
+            bulk := comm.Group("/bulk")
+            {
+                bulk.GET("/", commHandler.ListBulkJobs)
+                bulk.POST("/", commHandler.SendBulkEmail)
+                bulk.GET("/:id", commHandler.GetBulkJob)
+            }
+
+            templates := comm.Group("/templates")
+            {
+                templates.GET("/", commHandler.ListTemplates)
+                templates.POST("/", commHandler.CreateTemplate)
+                templates.PUT("/:id", commHandler.UpdateTemplate)
+                templates.DELETE("/:id", commHandler.DeleteTemplate)
+            }
+
+            signatures := comm.Group("/signatures")
+            {
+                signatures.GET("/", commHandler.ListSignatures)
+                signatures.POST("/", commHandler.CreateSignature)
+                signatures.PUT("/:id", commHandler.UpdateSignature)
+                signatures.DELETE("/:id", commHandler.DeleteSignature)
+            }
         }
     }
 
