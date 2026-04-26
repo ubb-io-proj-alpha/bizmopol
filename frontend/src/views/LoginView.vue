@@ -1,9 +1,7 @@
 <script setup>
 import { ref, computed } from "vue"
 import { useRouter, useRoute } from "vue-router"
-
-const TOKEN_KEY = "jwt_token"
-const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
+import { authAPI, setToken } from "@/services/api"
 
 const router = useRouter()
 const route = useRoute()
@@ -14,37 +12,95 @@ const email = ref("")
 const password = ref("")
 const name = ref("")
 const authError = ref("")
+const isSubmitting = ref(false)
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const shouldRetryAuthError = (error) => {
+    const status = Number(error?.status || 0)
+    return status === 0 || status >= 500
+}
+
+const authWithRetry = async (requestFn) => {
+    const maxAttempts = 30
+    const retryDelayMs = 1000
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            return await requestFn()
+        } catch (error) {
+            if (attempt < maxAttempts && shouldRetryAuthError(error)) {
+                await sleep(retryDelayMs)
+                continue
+            }
+            throw error
+        }
+    }
+
+    throw new Error("auth_request_failed")
+}
+
+const mapAuthError = (error) => {
+    const status = Number(error?.status || 0)
+
+    if (status === 401) {
+        return "Nieprawidłowy e-mail lub hasło."
+    }
+    if (status === 400) {
+        return error?.data?.error || "Nieprawidłowe dane logowania."
+    }
+    if (status === 409) {
+        return error?.data?.error || "Użytkownik już istnieje."
+    }
+    if (status >= 500 || status === 0) {
+        return "Backend uruchamia się lub został zrestartowany. Spróbuj ponownie za chwilę."
+    }
+
+    return error?.data?.error || error?.message || "Błąd autoryzacji."
+}
 
 const handleAuth = async () => {
     authError.value = ""
-    if (!email.value || !password.value) {
+    const normalizedEmail = email.value.trim().toLowerCase()
+    const rawPassword = password.value
+    const trimmedName = name.value.trim()
+
+    if (!normalizedEmail || !rawPassword) {
         authError.value = "Proszę wypełnić wymagane pola."
         return
     }
 
-    const url = isRegisterMode.value ? "/api/v1/auth/register" : "/api/v1/auth/login"
-    const body = isRegisterMode.value
-        ? { email: email.value, password: password.value, name: name.value }
-        : { email: email.value, password: password.value }
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-    })
-
-    if (!response.ok) {
-        const data = await response.json()
-        authError.value = data.error || "Błąd autoryzacji."
+    if (isRegisterMode.value && !trimmedName) {
+        authError.value = "Podaj imię lub nazwę firmy."
         return
     }
 
-    const data = await response.json()
-    setToken(data.token)
-    email.value = ""
-    password.value = ""
-    name.value = ""
-    router.push({ name: "dashboard" })
+    isSubmitting.value = true
+
+    const payload = isRegisterMode.value
+        ? { email: normalizedEmail, password: rawPassword, name: trimmedName }
+        : { email: normalizedEmail, password: rawPassword }
+
+    const requestFn = () => (isRegisterMode.value ? authAPI.register(payload) : authAPI.login(payload))
+
+    try {
+        const data = await authWithRetry(requestFn)
+
+        if (!data?.token) {
+            authError.value = "Brak tokenu w odpowiedzi serwera."
+            return
+        }
+
+        setToken(data.token)
+        email.value = ""
+        password.value = ""
+        name.value = ""
+        router.push({ name: "dashboard" })
+    } catch (error) {
+        authError.value = mapAuthError(error)
+    } finally {
+        isSubmitting.value = false
+    }
 }
 
 const goToRegister = () => router.push({ name: "register" })
@@ -67,18 +123,32 @@ const goToLogin = () => router.push({ name: "login" })
 
                 <div class="input-group">
                     <label>E-mail</label>
-                    <input v-model="email" type="email" placeholder="twoj@email.pl" required />
+                    <input
+                        v-model="email"
+                        type="email"
+                        placeholder="twoj@email.pl"
+                        autocomplete="username"
+                        :disabled="isSubmitting"
+                        required
+                    />
                 </div>
 
                 <div class="input-group">
                     <label>Hasło</label>
-                    <input v-model="password" type="password" placeholder="••••••••" required />
+                    <input
+                        v-model="password"
+                        type="password"
+                        placeholder="••••••••"
+                        autocomplete="current-password"
+                        :disabled="isSubmitting"
+                        required
+                    />
                 </div>
 
                 <p v-if="authError" class="auth-error">{{ authError }}</p>
 
-                <button type="submit" class="login-btn">
-                    {{ isRegisterMode ? "Zarejestruj się" : "Zaloguj się" }}
+                <button type="submit" class="login-btn" :disabled="isSubmitting">
+                    {{ isSubmitting ? "Trwa logowanie..." : (isRegisterMode ? "Zarejestruj się" : "Zaloguj się") }}
                 </button>
             </form>
 
@@ -140,6 +210,10 @@ const goToLogin = () => router.push({ name: "login" })
     transition: 0.2s;
 }
 .login-btn:hover { background: #7dd3fc; }
+.login-btn:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+}
 .auth-toggle { margin-top: 20px; font-size: 0.9rem; color: #94a3b8; }
 .auth-toggle span { color: #38bdf8; cursor: pointer; text-decoration: underline; font-weight: bold; }
 </style>

@@ -5,6 +5,18 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY)
 export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token)
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 
+const parseResponseData = (rawBody) => {
+  if (!rawBody) {
+    return null
+  }
+
+  try {
+    return JSON.parse(rawBody)
+  } catch {
+    return { error: rawBody }
+  }
+}
+
 async function request(path, options = {}) {
   const headers = {
     ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -16,13 +28,22 @@ async function request(path, options = {}) {
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  })
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+    })
+  } catch (error) {
+    const networkError = new Error("Network request failed")
+    networkError.status = 0
+    networkError.data = null
+    networkError.cause = error
+    throw networkError
+  }
 
   const rawBody = await response.text()
-  const data = rawBody ? JSON.parse(rawBody) : null
+  const data = parseResponseData(rawBody)
 
   if (!response.ok) {
     const error = new Error(data?.error || "Request failed")
