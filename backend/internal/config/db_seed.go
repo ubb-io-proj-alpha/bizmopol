@@ -16,6 +16,7 @@ import (
 func SeedDatabase(db *gorm.DB) {
 	seedUsers(db)
 	seedContacts(db)
+	seedPipelines(db)
 }
 
 func seedUsers(db *gorm.DB) {
@@ -390,4 +391,159 @@ func getAdminID(db *gorm.DB) string {
 		return fmt.Sprintf("system-%s", uuid.NewString()[:8])
 	}
 	return user.ID
+}
+
+func seedPipelines(db *gorm.DB) {
+	var count int64
+	db.Model(&model.Pipeline{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	slog.Info("Seeding pipelines...")
+
+	adminID := getAdminID(db)
+
+	pipelines := []struct {
+		name        string
+		description string
+		stages      []struct {
+			name      string
+			color     string
+			sortOrder int
+		}
+	}{
+		{
+			name:        "Sprzedaż B2B",
+			description: "Główny proces sprzedaży dla klientów biznesowych",
+			stages: []struct {
+				name      string
+				color     string
+				sortOrder int
+			}{
+				{"Nowy Lead", "#38bdf8", 0},
+				{"Kwalifikacja", "#818cf8", 1},
+				{"Demo / Prezentacja", "#f59e0b", 2},
+				{"Oferta wysłana", "#fb923c", 3},
+				{"Negocjacje", "#f87171", 4},
+				{"Zamknięty – Wygrany", "#22c55e", 5},
+				{"Zamknięty – Przegrany", "#64748b", 6},
+			},
+		},
+		{
+			name:        "Onboarding Klientów",
+			description: "Proces wdrożenia nowych klientów po podpisaniu umowy",
+			stages: []struct {
+				name      string
+				color     string
+				sortOrder int
+			}{
+				{"Podpisana umowa", "#38bdf8", 0},
+				{"Konfiguracja konta", "#818cf8", 1},
+				{"Szkolenie zespołu", "#f59e0b", 2},
+				{"Pierwsze wdrożenie", "#fb923c", 3},
+				{"Aktywny klient", "#22c55e", 4},
+			},
+		},
+		{
+			name:        "Obsługa Leadów Marketingowych",
+			description: "Przetwarzanie leadów przychodzących z kampanii",
+			stages: []struct {
+				name      string
+				color     string
+				sortOrder int
+			}{
+				{"Nowy kontakt", "#38bdf8", 0},
+				{"Kontakt nawiązany", "#818cf8", 1},
+				{"Zainteresowany", "#f59e0b", 2},
+				{"Przekazany do sprzedaży", "#22c55e", 3},
+				{"Odrzucony", "#64748b", 4},
+			},
+		},
+	}
+
+	for _, pd := range pipelines {
+		pipelineID := uuid.NewString()
+		now := time.Now()
+		pipeline := model.Pipeline{
+			ID:          pipelineID,
+			Name:        pd.name,
+			Description: pd.description,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		stages := make([]model.Stage, 0, len(pd.stages))
+		for _, sd := range pd.stages {
+			stages = append(stages, model.Stage{
+				ID:         uuid.NewString(),
+				PipelineID: pipelineID,
+				Name:       sd.name,
+				Color:      sd.color,
+				SortOrder:  sd.sortOrder,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			})
+		}
+		pipeline.Stages = stages
+
+		if err := db.Create(&pipeline).Error; err != nil {
+			slog.Error("SeedDatabase: failed to create pipeline", "name", pd.name, "error", err)
+			continue
+		}
+
+		seedContactStages(db, pipelineID, stages, adminID)
+	}
+}
+
+func seedContactStages(db *gorm.DB, pipelineID string, stages []model.Stage, adminID string) {
+	if len(stages) == 0 {
+		return
+	}
+
+	var contacts []*model.Contact
+	db.Where("is_group = ? AND group_id = ?", false, "").Limit(20).Find(&contacts)
+	if len(contacts) == 0 {
+		return
+	}
+
+	now := time.Now()
+	contactsPerStage := max(1, len(contacts)/len(stages))
+
+	for i, contact := range contacts {
+		stageIdx := i / contactsPerStage
+		if stageIdx >= len(stages) {
+			stageIdx = len(stages) - 1
+		}
+		stage := stages[stageIdx]
+
+		cs := model.ContactStage{
+			ID:         uuid.NewString(),
+			ContactID:  contact.ID,
+			PipelineID: pipelineID,
+			StageID:    stage.ID,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+		if err := db.Create(&cs).Error; err != nil {
+			slog.Error("SeedDatabase: failed to create contact stage", "contact", contact.ID, "error", err)
+			continue
+		}
+
+		db.Create(&model.ContactHistory{
+			ID:          uuid.NewString(),
+			ContactID:   contact.ID,
+			Action:      "stage_change",
+			Description: fmt.Sprintf("Dodano do pipeline w etapie: %s", stage.Name),
+			UserID:      adminID,
+			CreatedAt:   now,
+		})
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
