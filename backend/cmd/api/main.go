@@ -59,6 +59,9 @@ func main() {
         &model.Tag{},
         &model.CustomField{},
         &model.CustomFieldValue{},
+        &model.Pipeline{},
+        &model.Stage{},
+        &model.ContactStage{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -82,6 +85,10 @@ func main() {
 
     cfService := service.NewCustomFieldService(cfRepo)
     cfHandler := handler.NewCustomFieldHandler(cfService)
+
+    pipelineRepo := repository.NewPipelineRepository(db)
+    pipelineService := service.NewPipelineService(pipelineRepo, contactRepo)
+    pipelineHandler := handler.NewPipelineHandler(pipelineService)
 
     r := gin.Default()
 
@@ -127,6 +134,21 @@ func main() {
             customFields.POST("/", cfHandler.Create)
             customFields.PUT("/:id", cfHandler.Update)
             customFields.DELETE("/:id", cfHandler.Delete)
+        }
+
+        pipelines := api.Group("/pipelines")
+        pipelines.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            pipelines.GET("/", pipelineHandler.List)
+            pipelines.POST("/", pipelineHandler.Create)
+            pipelines.GET("/:id", pipelineHandler.GetByID)
+            pipelines.PUT("/:id", pipelineHandler.Update)
+            pipelines.DELETE("/:id", pipelineHandler.Delete)
+            pipelines.GET("/:id/kanban", pipelineHandler.GetKanban)
+            pipelines.POST("/:id/move", pipelineHandler.MoveContact)
+            pipelines.POST("/:id/stages", pipelineHandler.CreateStage)
+            pipelines.PUT("/:id/stages/:stage_id", pipelineHandler.UpdateStage)
+            pipelines.DELETE("/:id/stages/:stage_id", pipelineHandler.DeleteStage)
         }
     }
 
