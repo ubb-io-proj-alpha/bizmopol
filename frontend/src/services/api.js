@@ -11,21 +11,10 @@ async function request(path, options = {}) {
     ...(options.headers || {}),
   }
 
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('jwt_token')
+  const token = getToken()
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+    headers.Authorization = `Bearer ${token}`
   }
-  return config
-})
-
-// Pipeline API
-export const pipelineAPI = {
-  createPipeline: (name) => apiClient.post('/pipelines', { name }),
-  getPipelines: () => apiClient.get('/pipelines'),
-  getPipeline: (id) => apiClient.get(`/pipelines/${id}`),
-  updatePipeline: (id, name) => apiClient.put(`/pipelines/${id}`, { name }),
-  deletePipeline: (id) => apiClient.delete(`/pipelines/${id}`),
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
