@@ -10,17 +10,26 @@ services:
     volumes:
       - ./backend:/app
       - sqlite_storage:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v1/tests/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   frontend:
     build: ./frontend
     container_name: frontend
     ports:
       - "5173:5173"
+    environment:
+      - VITE_PROXY_TARGET=http://backend:8080
     volumes:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   sqlite_storage:

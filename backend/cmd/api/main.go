@@ -12,7 +12,6 @@ import (
 
 	"backend/internal/config"
 	"backend/internal/handler"
-	"backend/internal/middleware"
 	"backend/internal/model"
 	"backend/internal/repository"
 	"backend/internal/service"
@@ -48,48 +47,34 @@ func main() {
 	db, err := config.ConnectDB(cfg.DBType, cfg.DBURL)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 
-	if err := db.AutoMigrate(
-		&model.User{},
-		&model.Contact{},
-		&model.ContactHistory{},
-		&model.Tag{},
-		&model.CustomField{},
-		&model.CustomFieldValue{},
-		&model.Pipeline{},
-		&model.Stage{},
-		&model.Lead{},
-	); err != nil {
+	if err := db.AutoMigrate(&model.Test{}, &model.User{}, &model.Pipeline{}, &model.Stage{}, &model.Lead{}); err != nil {
 		slog.Error("Failed to migrate database", "error", err)
+		os.Exit(1)
 	}
 
-	if cfg.AppEnvironment == "development" {
-		config.SeedDatabase(db)
-	}
+	// Ensure seeded accounts (admin/coach/user with password123) exist and are updated on each startup.
+	config.SeedDatabase(db)
+
+	testRepo := repository.NewTestRepository(db)
+	testService := service.NewTestService(testRepo)
+	testHandler := handler.NewTestHandler(testService)
 
 	userRepo := repository.NewUserRepository(db)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 	authHandler := handler.NewAuthHandler(authService)
-
-	contactRepo := repository.NewContactRepository(db)
-	tagRepo := repository.NewTagRepository(db)
-	cfRepo := repository.NewCustomFieldRepository(db)
-	contactService := service.NewContactService(contactRepo, tagRepo, cfRepo)
-	contactHandler := handler.NewContactHandler(contactService)
-
-	tagService := service.NewTagService(tagRepo)
-	tagHandler := handler.NewTagHandler(tagService)
-
-	cfService := service.NewCustomFieldService(cfRepo)
-	cfHandler := handler.NewCustomFieldHandler(cfService)
 
 	pipelineRepo := repository.NewPipelineRepository(db)
 	pipelineService := service.NewPipelineService(pipelineRepo)
 	pipelineHandler := handler.NewPipelineHandler(pipelineService)
 
 	r := gin.Default()
-	r.Use(cors.Default())
+
+	if cfg.AppEnvironment != "production" {
+		r.Use(cors.Default())
+	}
 
 	api := r.Group("/api/v1")
 	{
@@ -99,42 +84,13 @@ func main() {
 			auth.POST("/login", authHandler.Login)
 		}
 
-		contacts := api.Group("/contacts")
-		contacts.Use(middleware.JWTAuth(cfg.JWTSecret))
+		tests := api.Group("/tests")
 		{
-			contacts.GET("/", contactHandler.List)
-			contacts.POST("/", contactHandler.Create)
-			contacts.POST("/merge", contactHandler.Merge)
-			contacts.GET("/:id", contactHandler.GetByID)
-			contacts.PUT("/:id", contactHandler.Update)
-			contacts.DELETE("/:id", contactHandler.Delete)
-			contacts.GET("/:id/history", contactHandler.ListHistory)
-			contacts.POST("/:id/history", contactHandler.AddHistory)
-			contacts.GET("/:id/members", contactHandler.GetGroupMembers)
-			contacts.GET("/:id/group-history", contactHandler.GetGroupHistory)
-			contacts.PUT("/:id/dnd", contactHandler.UpdateDnd)
-		}
-
-		tags := api.Group("/tags")
-		tags.Use(middleware.JWTAuth(cfg.JWTSecret))
-		{
-			tags.GET("/", tagHandler.List)
-			tags.POST("/", tagHandler.Create)
-			tags.PUT("/:id", tagHandler.Update)
-			tags.DELETE("/:id", tagHandler.Delete)
-		}
-
-		customFields := api.Group("/custom-fields")
-		customFields.Use(middleware.JWTAuth(cfg.JWTSecret))
-		{
-			customFields.GET("/", cfHandler.List)
-			customFields.POST("/", cfHandler.Create)
-			customFields.PUT("/:id", cfHandler.Update)
-			customFields.DELETE("/:id", cfHandler.Delete)
+			tests.GET("/", testHandler.GetAll)
+			tests.POST("/add", testHandler.Create)
 		}
 
 		pipelines := api.Group("/pipelines")
-		pipelines.Use(middleware.JWTAuth(cfg.JWTSecret))
 		{
 			pipelines.POST("/", pipelineHandler.CreatePipeline)
 			pipelines.GET("/", pipelineHandler.GetUserPipelines)

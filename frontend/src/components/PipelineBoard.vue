@@ -138,11 +138,13 @@ import { pipelineAPI } from '@/services/api'
 const props = defineProps({
   pipelineId: {
     type: Number,
-    required: true,
+    required: false,
+    default: null,
   },
 })
 
 const pipeline = ref({ name: '', stages: [] })
+const activePipelineId = ref(null)
 const showAddStageModal = ref(false)
 const showAddLeadModalActive = ref(false)
 const showEditLeadModalActive = ref(false)
@@ -157,29 +159,52 @@ const movingLead = ref(null)
 const selectedMoveStageId = ref(null)
 const isMovingLead = ref(false)
 
-const moveStageOptions = computed(() => {
-  if (!movingLead.value) {
-    return []
-  }
-
-  return pipeline.value.stages.filter((stage) => stage.id !== movingLead.value.fromStageId)
+onMounted(async () => {
+  await initializePipeline()
 })
 
-watch(
-  () => props.pipelineId,
-  async () => {
-    await loadPipeline()
-  },
-  { immediate: true }
-)
-
-async function loadPipeline() {
-  try {
-    const data = await pipelineAPI.getPipeline(props.pipelineId)
-    pipeline.value = data
-  } catch (error) {
-    console.error('Error loading pipeline:', error)
+const initializePipeline = async () => {
+  if (props.pipelineId) {
+    try {
+      await loadPipeline(props.pipelineId)
+      activePipelineId.value = props.pipelineId
+      return
+    } catch (error) {
+      console.warn('Pipeline from props not available, falling back to user pipelines', error)
+    }
   }
+
+  await loadOrCreateUserPipeline()
+}
+
+const loadOrCreateUserPipeline = async () => {
+  const response = await pipelineAPI.getPipelines()
+  const pipelines = Array.isArray(response.data) ? response.data : []
+
+  if (pipelines.length > 0) {
+    const selected = [...pipelines].sort((a, b) => b.id - a.id)[0]
+    activePipelineId.value = selected.id
+    await loadPipeline(selected.id)
+    return
+  }
+
+  const created = await pipelineAPI.createPipeline('Mój Lejek')
+  activePipelineId.value = created.data.id
+  await loadPipeline(created.data.id)
+}
+
+const loadPipeline = async (pipelineId = activePipelineId.value) => {
+  if (!pipelineId) return
+
+  const response = await pipelineAPI.getPipeline(pipelineId)
+  pipeline.value = response.data
+}
+
+const requirePipelineId = () => {
+  if (!activePipelineId.value) {
+    throw new Error('Pipeline not initialized')
+  }
+  return activePipelineId.value
 }
 
 const addStage = async () => {
@@ -189,8 +214,9 @@ const addStage = async () => {
   }
 
   try {
-    const stage = await pipelineAPI.createStage(
-      props.pipelineId,
+    const pipelineId = requirePipelineId()
+    const response = await pipelineAPI.createStage(
+      pipelineId,
       newStageName.value.trim(),
       pipeline.value.stages.length
     )
@@ -215,8 +241,9 @@ const deleteStage = async (stageId) => {
   if (!confirm('Na pewno usunąć stage?')) return
 
   try {
-    await pipelineAPI.deleteStage(props.pipelineId, stageId)
-    pipeline.value.stages = pipeline.value.stages.filter((stage) => stage.id !== stageId)
+    const pipelineId = requirePipelineId()
+    await pipelineAPI.deleteStage(pipelineId, stageId)
+    pipeline.value.stages = pipeline.value.stages.filter(s => s.id !== stageId)
   } catch (error) {
     console.error('Error deleting stage:', error)
   }
@@ -234,9 +261,10 @@ const addLead = async () => {
   }
 
   try {
-    const lead = await pipelineAPI.createLead(
-      props.pipelineId,
-      newLeadName.value.trim(),
+    const pipelineId = requirePipelineId()
+    const response = await pipelineAPI.createLead(
+      pipelineId,
+      newLeadName.value,
       newLeadEmail.value,
       newLeadPhone.value,
       activeStageId.value
@@ -299,16 +327,18 @@ const moveLeadToStage = async (leadId, toStageId, fromStageId) => {
   if (toStageId === fromStageId) return false
 
   try {
-    const toStage = pipeline.value.stages.find((stage) => stage.id === toStageId)
-
-    if (!toStage) {
-      console.error('Inconsistent pipeline state: target stage not found when moving lead', {
-        leadId,
-        fromStageId,
-        toStageId,
-      })
-      await loadPipeline()
-      return false
+    const pipelineId = requirePipelineId()
+    const fromStage = pipeline.value.stages.find(s => s.id === fromStageId)
+    const toStage = pipeline.value.stages.find(s => s.id === toStageId)
+    
+    const lead = fromStage.leads.find(l => l.id === leadId)
+    if (lead && toStage) {
+      // Optimistic update
+      fromStage.leads = fromStage.leads.filter(l => l.id !== leadId)
+      toStage.leads.push(lead)
+      
+      // Backend update
+      await pipelineAPI.moveLeadToStage(pipelineId, leadId, toStageId, toStage.leads.length - 1)
     }
 
     await pipelineAPI.moveLeadToStage(
@@ -331,8 +361,9 @@ const deleteLead = async (leadId, stageId) => {
   if (!confirm('Na pewno usunąć lead?')) return
 
   try {
-    await pipelineAPI.deleteLead(props.pipelineId, leadId)
-    const stage = pipeline.value.stages.find((candidate) => candidate.id === stageId)
+    const pipelineId = requirePipelineId()
+    await pipelineAPI.deleteLead(pipelineId, leadId)
+    const stage = pipeline.value.stages.find(s => s.id === stageId)
     if (stage) {
       stage.leads = stage.leads.filter((lead) => lead.id !== leadId)
     }
@@ -358,8 +389,9 @@ const updateLead = async () => {
   }
 
   try {
+    const pipelineId = requirePipelineId()
     await pipelineAPI.updateLead(
-      props.pipelineId,
+      pipelineId,
       editingLead.value.id,
       editingLead.value.name.trim(),
       editingLead.value.email,
