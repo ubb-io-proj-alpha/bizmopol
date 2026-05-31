@@ -27,7 +27,9 @@ func (h *CommunicationHandler) GetStats(c *gin.Context) {
 }
 
 func (h *CommunicationHandler) SyncInbox(c *gin.Context) {
-	result, err := h.svc.SyncInbox(c)
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	result, err := h.svc.SyncInbox(c, uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
@@ -305,6 +307,78 @@ func (h *CommunicationHandler) DeleteSignature(c *gin.Context) {
 func (h *CommunicationHandler) GetContactThreads(c *gin.Context) {
 	contactID := c.Param("id")
 	result, err := h.svc.GetContactThreads(c, contactID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *CommunicationHandler) GetEmailAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	result, err := h.svc.GetEmailAccount(c, uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	if result == nil {
+		c.JSON(http.StatusOK, gin.H{"configured": false})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *CommunicationHandler) CreateEmailAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	var req dto.EmailAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.svc.CreateEmailAccount(c, uid, req)
+	if err != nil {
+		if err.Error() == "email account already exists, update it instead" {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusCreated, result)
+}
+
+func (h *CommunicationHandler) UpdateEmailAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	var req dto.EmailAccountUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.svc.UpdateEmailAccount(c, uid, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *CommunicationHandler) DeleteEmailAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	if err := h.svc.DeleteEmailAccount(c, uid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusNoContent, nil)
+}
+
+func (h *CommunicationHandler) TestConnection(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	uid, _ := userID.(string)
+	result, err := h.svc.TestConnection(c, uid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return

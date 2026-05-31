@@ -67,6 +67,9 @@ func main() {
         &model.EmailTemplate{},
         &model.BulkEmailJob{},
         &model.EmailSignature{},
+        &model.EmailAccount{},
+        &model.CalendarEvent{},
+        &model.ZoomAccount{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -98,6 +101,10 @@ func main() {
     commRepo := repository.NewCommunicationRepository(db)
     commService := service.NewCommunicationService(commRepo)
     commHandler := handler.NewCommunicationHandler(commService)
+
+    calRepo := repository.NewCalendarRepository(db)
+    calService := service.NewCalendarService(calRepo)
+    calHandler := handler.NewCalendarHandler(calService)
 
     r := gin.Default()
 
@@ -205,6 +212,40 @@ func main() {
                 signatures.POST("/", commHandler.CreateSignature)
                 signatures.PUT("/:id", commHandler.UpdateSignature)
                 signatures.DELETE("/:id", commHandler.DeleteSignature)
+            }
+
+            account := comm.Group("/account")
+            {
+                account.GET("/", commHandler.GetEmailAccount)
+                account.POST("/", commHandler.CreateEmailAccount)
+                account.PUT("/", commHandler.UpdateEmailAccount)
+                account.DELETE("/", commHandler.DeleteEmailAccount)
+                account.POST("/test", commHandler.TestConnection)
+            }
+        }
+
+        cal := api.Group("/calendar")
+        cal.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            cal.GET("/stats", calHandler.GetStats)
+            cal.GET("/upcoming", calHandler.UpcomingEvents)
+
+            events := cal.Group("/events")
+            {
+                events.GET("/", calHandler.ListEvents)
+                events.POST("/", calHandler.CreateEvent)
+                events.GET("/:id", calHandler.GetEvent)
+                events.PUT("/:id", calHandler.UpdateEvent)
+                events.DELETE("/:id", calHandler.DeleteEvent)
+            }
+
+            zoom := cal.Group("/zoom")
+            {
+                zoom.GET("/", calHandler.GetZoomAccount)
+                zoom.POST("/", calHandler.CreateZoomAccount)
+                zoom.PUT("/", calHandler.UpdateZoomAccount)
+                zoom.DELETE("/", calHandler.DeleteZoomAccount)
+                zoom.POST("/test", calHandler.TestZoomConnection)
             }
         }
     }

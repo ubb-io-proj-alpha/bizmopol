@@ -66,6 +66,29 @@ const formError = ref("")
 const syncStatus = ref(null)
 const syncing = ref(false)
 
+const emailAccount = ref(null)
+const accountLoading = ref(false)
+const accountSaving = ref(false)
+const testingConnection = ref(false)
+const testResult = ref(null)
+const accountForm = reactive({
+    provider: "gmail",
+    email: "",
+    password: "",
+    imapHost: "",
+    imapPort: 993,
+    smtpHost: "",
+    smtpPort: 587,
+})
+const showCustomServers = ref(false)
+
+const providerOptions = [
+    { value: "gmail", label: "Gmail", icon: "mail", imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 587 },
+    { value: "outlook", label: "Outlook / Hotmail", icon: "mail", imapHost: "outlook.office365.com", imapPort: 993, smtpHost: "smtp.office365.com", smtpPort: 587 },
+    { value: "yahoo", label: "Yahoo Mail", icon: "mail", imapHost: "imap.mail.yahoo.com", imapPort: 993, smtpHost: "smtp.mail.yahoo.com", smtpPort: 587 },
+    { value: "custom", label: "Custom IMAP/SMTP", icon: "dns", imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 587 },
+]
+
 async function loadStats() {
     try {
         const res = await authFetch("/api/v1/communication/stats")
@@ -141,9 +164,15 @@ async function openThread(thread) {
 
 async function syncInbox() {
     syncing.value = true
+    syncStatus.value = null
     try {
         const res = await authFetch("/api/v1/communication/sync", { method: "POST" })
-        if (res.ok) syncStatus.value = await res.json()
+        if (res.ok) {
+            syncStatus.value = await res.json()
+            if (syncStatus.value.error) {
+                formError.value = syncStatus.value.error
+            }
+        }
         await loadThreads()
         await loadStats()
     } catch (_) {} finally {
@@ -498,16 +527,120 @@ const clearBulkContacts = () => {
     bulkForm.contactIds = []
 }
 
+async function loadEmailAccount() {
+    accountLoading.value = true
+    try {
+        const res = await authFetch("/api/v1/communication/account/")
+        if (res.ok) {
+            const data = await res.json()
+            if (data.configured === false) {
+                emailAccount.value = null
+            } else {
+                emailAccount.value = data
+                accountForm.provider = data.provider || "gmail"
+                accountForm.email = data.email || ""
+                accountForm.password = ""
+                accountForm.imapHost = data.imap_host || ""
+                accountForm.imapPort = data.imap_port || 993
+                accountForm.smtpHost = data.smtp_host || ""
+                accountForm.smtpPort = data.smtp_port || 587
+                showCustomServers.value = data.provider === "custom"
+            }
+        }
+    } catch (_) {} finally {
+        accountLoading.value = false
+    }
+}
+
+function onProviderChange() {
+    const provider = providerOptions.find(p => p.value === accountForm.provider)
+    if (provider) {
+        accountForm.imapHost = provider.imapHost
+        accountForm.imapPort = provider.imapPort
+        accountForm.smtpHost = provider.smtpHost
+        accountForm.smtpPort = provider.smtpPort
+        showCustomServers.value = accountForm.provider === "custom"
+    }
+}
+
+async function saveEmailAccount() {
+    formError.value = ""
+    if (!accountForm.email || !accountForm.password) {
+        formError.value = "Email and app password are required."
+        return
+    }
+    accountSaving.value = true
+    try {
+        const payload = {
+            provider: accountForm.provider,
+            email: accountForm.email,
+            password: accountForm.password,
+            imap_host: accountForm.imapHost,
+            imap_port: accountForm.imapPort,
+            smtp_host: accountForm.smtpHost,
+            smtp_port: accountForm.smtpPort,
+        }
+        let res
+        if (emailAccount.value) {
+            res = await authFetch("/api/v1/communication/account/", {
+                method: "PUT",
+                body: JSON.stringify(payload),
+            })
+        } else {
+            res = await authFetch("/api/v1/communication/account/", {
+                method: "POST",
+                body: JSON.stringify(payload),
+            })
+        }
+        if (!res.ok) {
+            const d = await res.json()
+            throw new Error(d.error || "Failed to save account")
+        }
+        const data = await res.json()
+        emailAccount.value = data
+        testResult.value = null
+        formError.value = ""
+    } catch (e) {
+        formError.value = e.message
+    } finally {
+        accountSaving.value = false
+    }
+}
+
+async function testConnection() {
+    testingConnection.value = true
+    testResult.value = null
+    try {
+        const res = await authFetch("/api/v1/communication/account/test", { method: "POST" })
+        if (res.ok) testResult.value = await res.json()
+    } catch (_) {
+        testResult.value = { imap_status: "error", smtp_status: "error", error: "Connection test failed." }
+    } finally {
+        testingConnection.value = false
+    }
+}
+
+async function disconnectAccount() {
+    if (!confirm("Disconnect email account? Your synced emails will remain.")) return
+    try {
+        await authFetch("/api/v1/communication/account/", { method: "DELETE" })
+        emailAccount.value = null
+        Object.assign(accountForm, { provider: "gmail", email: "", password: "", imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 587 })
+        testResult.value = null
+    } catch (_) {}
+}
+
 watch(filterStatus, () => { page.value = 1; loadThreads() })
 watch(filterDirection, () => { page.value = 1; loadThreads() })
 
 onMounted(async () => {
-    await Promise.all([loadStats(), loadThreads(), loadTemplates(), loadSignatures()])
+    await Promise.all([loadStats(), loadThreads(), loadTemplates(), loadSignatures(), loadEmailAccount()])
 })
 
 watch(activeTab, (tab) => {
     if (tab === "bulk") loadBulkJobs()
     if (tab === "inbox") loadThreads()
+    if (tab === "settings") loadEmailAccount()
 })
 </script>
 
@@ -519,9 +652,15 @@ watch(activeTab, (tab) => {
                 <p class="subtitle">Zarządzaj korespondencją z kontaktami</p>
             </div>
             <div class="header-actions">
-                <button class="btn-sync" @click="syncInbox" :disabled="syncing">
+                <span v-if="emailAccount" class="connected-badge" title="Connected">
+                    <span class="material-icons" style="font-size:0.8rem">circle</span>
+                    {{ emailAccount.email }}
+                </span>
+                <button class="btn-sync" @click="syncInbox" :disabled="syncing || !emailAccount" :title="!emailAccount ? 'Configure email in Settings first' : 'Sync inbox'">
                     <span class="material-icons" :class="{ spinning: syncing }">sync</span>
-                    {{ syncing ? "Synchronizuję..." : "Synchronizuj" }}
+                    <template v-if="syncing">Synchronizuję...</template>
+                    <template v-else-if="syncStatus && syncStatus.new_messages > 0">+{{ syncStatus.new_messages }} nowych</template>
+                    <template v-else>Synchronizuj</template>
                 </button>
                 <button class="btn-bulk" @click="openBulk">
                     <span class="material-icons">send</span> Wyślij masowo
@@ -579,6 +718,10 @@ watch(activeTab, (tab) => {
             </button>
             <button :class="['tab-btn', { active: activeTab === 'recent' }]" @click="activeTab = 'recent'">
                 <span class="material-icons">people</span> Ostatnie kontakty
+            </button>
+            <button :class="['tab-btn', { active: activeTab === 'settings' }]" @click="activeTab = 'settings'">
+                <span class="material-icons">settings</span> Ustawienia
+                <span v-if="!emailAccount" class="setup-dot"></span>
             </button>
         </div>
 
@@ -852,6 +995,131 @@ watch(activeTab, (tab) => {
                     </button>
                 </div>
             </div>
+        </div>
+
+        <div v-if="activeTab === 'settings'" class="settings-section">
+            <h2>Ustawienia konta e-mail</h2>
+            <p class="settings-desc">Połącz konto e-mail, aby synchronizować skrzynkę odbiorczą i wysyłać wiadomości bezpośrednio z CRM.</p>
+
+            <div v-if="accountLoading" class="loading">Ładowanie...</div>
+            <template v-else>
+                <div v-if="emailAccount" class="account-status-card">
+                    <div class="account-status-header">
+                        <div class="account-status-left">
+                            <span class="material-icons account-status-icon connected">check_circle</span>
+                            <div>
+                                <div class="account-provider">{{ emailAccount.provider?.toUpperCase() }}</div>
+                                <div class="account-email">{{ emailAccount.email }}</div>
+                            </div>
+                        </div>
+                        <div class="account-status-right">
+                            <div class="account-meta">
+                                <span v-if="emailAccount.last_sync_at">Ostatnia synchronizacja: {{ formatDateFull(emailAccount.last_sync_at) }}</span>
+                                <span v-else>Nigdy nie synchronizowano</span>
+                            </div>
+                            <div class="account-meta">Zsynchronizowano łącznie: {{ emailAccount.synced_count || 0 }} wiadomości</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-form-card">
+                    <h3>{{ emailAccount ? 'Zaktualizuj połączenie' : 'Połącz konto e-mail' }}</h3>
+
+                    <div class="provider-grid">
+                        <div
+                            v-for="p in providerOptions"
+                            :key="p.value"
+                            :class="['provider-card', { selected: accountForm.provider === p.value }]"
+                            @click="accountForm.provider = p.value; onProviderChange()"
+                        >
+                            <span class="material-icons provider-icon">{{ p.icon }}</span>
+                            <span class="provider-label">{{ p.label }}</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Adres e-mail *</label>
+                        <input v-model="accountForm.email" type="email" placeholder="twoj@gmail.com" />
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            Hasło aplikacji *
+                            <a v-if="accountForm.provider === 'gmail'" href="https://myaccount.google.com/apppasswords" target="_blank" class="help-link">(Jak wygenerować?)</a>
+                            <a v-else-if="accountForm.provider === 'outlook'" href="https://account.live.com/proofs/manage/additional" target="_blank" class="help-link">(Jak wygenerować?)</a>
+                        </label>
+                        <input v-model="accountForm.password" type="password" placeholder="Wklej hasło aplikacji..." />
+                    </div>
+
+                    <div v-if="accountForm.provider === 'custom' || showCustomServers" class="custom-server-fields">
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label>IMAP Host</label>
+                                <input v-model="accountForm.imapHost" placeholder="imap.example.com" />
+                            </div>
+                            <div class="form-group w-100">
+                                <label>IMAP Port</label>
+                                <input v-model.number="accountForm.imapPort" type="number" />
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label>SMTP Host</label>
+                                <input v-model="accountForm.smtpHost" placeholder="smtp.example.com" />
+                            </div>
+                            <div class="form-group w-100">
+                                <label>SMTP Port</label>
+                                <input v-model.number="accountForm.smtpPort" type="number" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <button v-if="accountForm.provider !== 'custom' && !showCustomServers" class="btn-link" @click="showCustomServers = true">
+                        Pokaż ustawienia serwera
+                    </button>
+
+                    <p v-if="formError" class="err-msg">{{ formError }}</p>
+
+                    <div class="settings-actions">
+                        <button class="btn-primary" @click="saveEmailAccount" :disabled="accountSaving">
+                            <span class="material-icons">save</span>
+                            {{ accountSaving ? 'Zapisywanie...' : (emailAccount ? 'Zaktualizuj' : 'Połącz') }}
+                        </button>
+                        <button v-if="emailAccount" class="btn-secondary" @click="testConnection" :disabled="testingConnection">
+                            <span class="material-icons">wifi_tethering</span>
+                            {{ testingConnection ? 'Testowanie...' : 'Testuj połączenie' }}
+                        </button>
+                        <button v-if="emailAccount" class="btn-danger-outline" @click="disconnectAccount">
+                            <span class="material-icons">link_off</span> Rozłącz
+                        </button>
+                    </div>
+
+                    <div v-if="testResult" class="test-result">
+                        <div :class="['test-item', testResult.imap_status === 'ok' ? 'test-ok' : 'test-fail']">
+                            <span class="material-icons">{{ testResult.imap_status === 'ok' ? 'check_circle' : 'error' }}</span>
+                            IMAP (odbiór poczty): {{ testResult.imap_status === 'ok' ? 'Połączono' : 'Błąd' }}
+                        </div>
+                        <div :class="['test-item', testResult.smtp_status === 'ok' ? 'test-ok' : 'test-fail']">
+                            <span class="material-icons">{{ testResult.smtp_status === 'ok' ? 'check_circle' : 'error' }}</span>
+                            SMTP (wysyłanie poczty): {{ testResult.smtp_status === 'ok' ? 'Połączono' : 'Błąd' }}
+                        </div>
+                        <div v-if="testResult.error" class="test-error">{{ testResult.error }}</div>
+                    </div>
+                </div>
+
+                <div class="settings-info-card">
+                    <span class="material-icons info-icon">info</span>
+                    <div>
+                        <h4>Jak to działa?</h4>
+                        <ul>
+                            <li>BizmoPol łączy się z Twoim kontem e-mail przez protokoły <strong>IMAP</strong> (odbiór) i <strong>SMTP</strong> (wysyłanie).</li>
+                            <li>Dla <strong>Gmail</strong>: włącz IMAP w ustawieniach i wygeneruj <em>hasło aplikacji</em> (wymaga weryfikacji dwuetapowej).</li>
+                            <li>Dla <strong>Outlook</strong>: wygeneruj hasło aplikacji w ustawieniach bezpieczeństwa konta Microsoft.</li>
+                            <li>Kliknij <strong>"Synchronizuj"</strong> w nagłówku, aby pobrać nowe wiadomości ze skrzynki.</li>
+                            <li>Wiadomości wysyłane z CRM trafią bezpośrednio na wskazany adres e-mail.</li>
+                        </ul>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <div v-if="showComposeModal" class="modal-overlay" @click.self="showComposeModal = false">
@@ -1340,4 +1608,99 @@ watch(activeTab, (tab) => {
 .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: white; border-radius: 50%; transition: 0.2s; }
 .toggle-input:checked + .toggle-track .toggle-thumb { left: 23px; }
 .toggle-text { color: #e2e8f0; font-size: 0.9rem; }
+
+.connected-badge {
+    display: flex; align-items: center; gap: 4px;
+    color: #34d399; font-size: 0.82rem; padding: 6px 12px;
+    background: #064e3b22; border: 1px solid #064e3b; border-radius: 8px;
+}
+.setup-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #f59e0b;
+    display: inline-block; margin-left: 4px;
+}
+
+.settings-section { padding: 4px 0; max-width: 800px; }
+.settings-section h2 { color: #f8fafc; font-size: 1.3rem; margin-bottom: 6px; }
+.settings-desc { color: #94a3b8; font-size: 0.92rem; margin-bottom: 24px; }
+
+.account-status-card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 20px; margin-bottom: 20px;
+}
+.account-status-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+.account-status-left { display: flex; align-items: center; gap: 14px; }
+.account-status-icon { font-size: 2rem; }
+.account-status-icon.connected { color: #34d399; }
+.account-provider { color: #f1f5f9; font-weight: 700; font-size: 1.1rem; }
+.account-email { color: #94a3b8; font-size: 0.9rem; }
+.account-status-right { text-align: right; }
+.account-meta { color: #64748b; font-size: 0.82rem; }
+
+.settings-form-card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 24px; margin-bottom: 20px;
+}
+.settings-form-card h3 { color: #38bdf8; font-size: 1.1rem; margin-bottom: 20px; }
+
+.provider-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px; margin-bottom: 20px;
+}
+.provider-card {
+    background: #0f172a; border: 2px solid #334155; border-radius: 10px;
+    padding: 16px; cursor: pointer; transition: 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+}
+.provider-card:hover { border-color: #475569; }
+.provider-card.selected { border-color: #38bdf8; background: #0f2a4a; }
+.provider-icon { font-size: 1.8rem; color: #94a3b8; }
+.provider-card.selected .provider-icon { color: #38bdf8; }
+.provider-label { color: #e2e8f0; font-size: 0.88rem; font-weight: 500; }
+
+.custom-server-fields { margin-top: 16px; padding-top: 16px; border-top: 1px solid #334155; }
+.form-row { display: flex; gap: 12px; }
+.flex-1 { flex: 1; }
+.w-100 { width: 100px; }
+
+.settings-actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+
+.btn-danger-outline {
+    padding: 10px 18px; background: transparent; border: 1px solid #7f1d1d;
+    border-radius: 8px; color: #f87171; cursor: pointer; transition: 0.2s;
+    font-size: 0.9rem; display: flex; align-items: center; gap: 6px;
+}
+.btn-danger-outline:hover { background: #3f1414; border-color: #f87171; }
+.btn-danger-outline .material-icons { font-size: 1rem; }
+
+.btn-link {
+    background: none; border: none; color: #38bdf8; cursor: pointer;
+    font-size: 0.85rem; padding: 4px 0; margin-top: 4px;
+}
+.btn-link:hover { text-decoration: underline; }
+
+.help-link { color: #38bdf8; font-size: 0.78rem; text-decoration: none; margin-left: 4px; }
+.help-link:hover { text-decoration: underline; }
+
+.test-result {
+    margin-top: 16px; padding: 16px; background: #0f172a;
+    border: 1px solid #334155; border-radius: 10px;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.test-item {
+    display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 500;
+}
+.test-item .material-icons { font-size: 1.1rem; }
+.test-ok { color: #34d399; }
+.test-fail { color: #f87171; }
+.test-error { color: #f87171; font-size: 0.82rem; margin-top: 6px; padding-top: 8px; border-top: 1px solid #334155; }
+
+.settings-info-card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 20px; display: flex; gap: 16px; align-items: flex-start;
+}
+.info-icon { color: #38bdf8; font-size: 1.5rem; flex-shrink: 0; margin-top: 2px; }
+.settings-info-card h4 { color: #f1f5f9; margin-bottom: 10px; font-size: 0.95rem; }
+.settings-info-card ul { color: #94a3b8; font-size: 0.85rem; padding-left: 18px; line-height: 1.8; }
+.settings-info-card strong { color: #e2e8f0; }
+.settings-info-card em { color: #f59e0b; font-style: normal; }
 </style>

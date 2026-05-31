@@ -47,6 +47,11 @@ type CommunicationRepository interface {
 
 	Stats(ctx context.Context) (map[string]int64, error)
 	RecentContacts(ctx context.Context, limit int) ([]*model.EmailThread, error)
+
+	CreateEmailAccount(ctx context.Context, a *model.EmailAccount) error
+	FindEmailAccountByUserID(ctx context.Context, userID string) (*model.EmailAccount, error)
+	UpdateEmailAccount(ctx context.Context, a *model.EmailAccount) error
+	DeleteEmailAccount(ctx context.Context, id string) error
 }
 
 type communicationRepository struct {
@@ -317,4 +322,28 @@ func (r *communicationRepository) RecentContacts(ctx context.Context, limit int)
 		Limit(limit).
 		Find(&threads).Error
 	return threads, err
+}
+
+func (r *communicationRepository) CreateEmailAccount(ctx context.Context, a *model.EmailAccount) error {
+	return r.db.WithContext(ctx).Create(a).Error
+}
+
+func (r *communicationRepository) FindEmailAccountByUserID(ctx context.Context, userID string) (*model.EmailAccount, error) {
+	var a model.EmailAccount
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&a).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *communicationRepository) UpdateEmailAccount(ctx context.Context, a *model.EmailAccount) error {
+	return r.db.WithContext(ctx).Save(a).Error
+}
+
+func (r *communicationRepository) DeleteEmailAccount(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Delete(&model.EmailAccount{}, "id = ?", id).Error
 }

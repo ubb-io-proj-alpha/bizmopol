@@ -145,10 +145,52 @@ type ThreadQuery struct {
 }
 
 type SyncStatusResponse struct {
-	Connected    bool      `json:"connected"`
+	Connected    bool       `json:"connected"`
 	LastSync     *time.Time `json:"last_sync"`
-	EmailAddress string    `json:"email_address"`
-	Error        string    `json:"error,omitempty"`
+	EmailAddress string     `json:"email_address"`
+	Provider     string     `json:"provider,omitempty"`
+	NewMessages  int        `json:"new_messages"`
+	Error        string     `json:"error,omitempty"`
+}
+
+type EmailAccountRequest struct {
+	Provider string `json:"provider" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+	IMAPHost string `json:"imap_host"`
+	IMAPPort int    `json:"imap_port"`
+	SMTPHost string `json:"smtp_host"`
+	SMTPPort int    `json:"smtp_port"`
+}
+
+type EmailAccountUpdateRequest struct {
+	Provider string `json:"provider"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	IMAPHost string `json:"imap_host"`
+	IMAPPort int    `json:"imap_port"`
+	SMTPHost string `json:"smtp_host"`
+	SMTPPort int    `json:"smtp_port"`
+}
+
+type EmailAccountResponse struct {
+	ID          string     `json:"id"`
+	Provider    string     `json:"provider"`
+	Email       string     `json:"email"`
+	IMAPHost    string     `json:"imap_host"`
+	IMAPPort    int        `json:"imap_port"`
+	SMTPHost    string     `json:"smtp_host"`
+	SMTPPort    int        `json:"smtp_port"`
+	IsActive    bool       `json:"is_active"`
+	LastSyncAt  *time.Time `json:"last_sync_at"`
+	SyncedCount int        `json:"synced_count"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type TestConnectionResponse struct {
+	IMAPStatus string `json:"imap_status"`
+	SMTPStatus string `json:"smtp_status"`
+	Error      string `json:"error,omitempty"`
 }
 
 type StatsResponse struct {

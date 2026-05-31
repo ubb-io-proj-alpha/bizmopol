@@ -79,3 +79,21 @@ type EmailSignature struct {
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
+
+type EmailAccount struct {
+	ID          string     `gorm:"primaryKey;size:36" json:"id"`
+	UserID      string     `gorm:"size:36;not null;uniqueIndex" json:"user_id"`
+	Provider    string     `gorm:"size:50;default:gmail" json:"provider"`
+	Email       string     `gorm:"size:255;not null" json:"email"`
+	Password    string     `gorm:"size:500" json:"-"`
+	IMAPHost    string     `gorm:"size:255" json:"imap_host"`
+	IMAPPort    int        `gorm:"default:993" json:"imap_port"`
+	SMTPHost    string     `gorm:"size:255" json:"smtp_host"`
+	SMTPPort    int        `gorm:"default:587" json:"smtp_port"`
+	LastSyncUID uint32     `gorm:"default:0" json:"last_sync_uid"`
+	LastSyncAt  *time.Time `json:"last_sync_at"`
+	SyncedCount int        `gorm:"default:0" json:"synced_count"`
+	IsActive    bool       `gorm:"default:true" json:"is_active"`
+	CreatedAt   time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+}

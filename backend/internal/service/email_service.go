@@ -76,9 +76,15 @@ type CommunicationService interface {
 	DeleteSignature(ctx context.Context, id string) error
 
 	GetStats(ctx context.Context) (*dto.StatsResponse, error)
-	SyncInbox(ctx context.Context) (*dto.SyncStatusResponse, error)
+	SyncInbox(ctx context.Context, userID string) (*dto.SyncStatusResponse, error)
 
 	GetContactThreads(ctx context.Context, contactID string) ([]*dto.ThreadResponse, error)
+
+	CreateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountRequest) (*dto.EmailAccountResponse, error)
+	GetEmailAccount(ctx context.Context, userID string) (*dto.EmailAccountResponse, error)
+	UpdateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountUpdateRequest) (*dto.EmailAccountResponse, error)
+	DeleteEmailAccount(ctx context.Context, userID string) error
+	TestConnection(ctx context.Context, userID string) (*dto.TestConnectionResponse, error)
 }
 
 type communicationService struct {
@@ -175,13 +181,21 @@ func toSignatureResponse(s *model.EmailSignature) *dto.SignatureResponse {
 	}
 }
 
-func (s *communicationService) sendSMTP(to []string, subject, body, bodyHTML, inReplyTo, msgID string) error {
-	if s.emailCfg.SMTPUser == "" {
+func (s *communicationService) getEffectiveSMTPConfig(ctx context.Context, userID string) (smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) {
+	account, _ := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if account != nil && account.SMTPHost != "" && account.Password != "" {
+		return account.SMTPHost, fmt.Sprintf("%d", account.SMTPPort), account.Email, account.Password, account.Email, s.emailCfg.FromName
+	}
+	return s.emailCfg.SMTPHost, s.emailCfg.SMTPPort, s.emailCfg.SMTPUser, s.emailCfg.SMTPPass, s.emailCfg.FromEmail, s.emailCfg.FromName
+}
+
+func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) error {
+	if smtpUser == "" {
 		slog.Warn("SMTP not configured, skipping actual email send")
 		return nil
 	}
 
-	fromHeader := fmt.Sprintf("%s <%s>", s.emailCfg.FromName, s.emailCfg.FromEmail)
+	fromHeader := fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	toHeader := strings.Join(to, ", ")
 
 	var msg strings.Builder
@@ -209,24 +223,24 @@ func (s *communicationService) sendSMTP(to []string, subject, body, bodyHTML, in
 		msg.WriteString(body)
 	}
 
-	auth := smtp.PlainAuth("", s.emailCfg.SMTPUser, s.emailCfg.SMTPPass, s.emailCfg.SMTPHost)
-	addr := s.emailCfg.SMTPHost + ":" + s.emailCfg.SMTPPort
+	auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+	addr := smtpHost + ":" + smtpPort
 
-	if s.emailCfg.SMTPPort == "465" {
-		tlsCfg := &tls.Config{ServerName: s.emailCfg.SMTPHost}
+	if smtpPort == "465" {
+		tlsCfg := &tls.Config{ServerName: smtpHost}
 		conn, err := tls.Dial("tcp", addr, tlsCfg)
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
-		client, err := smtp.NewClient(conn, s.emailCfg.SMTPHost)
+		client, err := smtp.NewClient(conn, smtpHost)
 		if err != nil {
 			return err
 		}
 		if err := client.Auth(auth); err != nil {
 			return err
 		}
-		if err := client.Mail(s.emailCfg.FromEmail); err != nil {
+		if err := client.Mail(fromEmail); err != nil {
 			return err
 		}
 		for _, r := range to {
@@ -243,12 +257,14 @@ func (s *communicationService) sendSMTP(to []string, subject, body, bodyHTML, in
 		return err
 	}
 
-	return smtp.SendMail(addr, auth, s.emailCfg.FromEmail, to, []byte(msg.String()))
+	return smtp.SendMail(addr, auth, fromEmail, to, []byte(msg.String()))
 }
 
 func (s *communicationService) SendEmail(ctx context.Context, userID string, req dto.SendEmailRequest) (*dto.ThreadResponse, error) {
 	now := time.Now()
 	msgID := uuid.NewString()
+
+	smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName := s.getEffectiveSMTPConfig(ctx, userID)
 
 	thread := &model.EmailThread{
 		ID:            uuid.NewString(),
@@ -269,7 +285,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 				ID:        uuid.NewString(),
 				ThreadID:  existing.ID,
 				MessageID: msgID,
-				From:      s.emailCfg.FromEmail,
+				From:      fromEmail,
 				To:        req.To,
 				Cc:        strings.Join(req.Cc, ", "),
 				Subject:   req.Subject,
@@ -281,7 +297,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 			sentAt := now
 			msg.SentAt = &sentAt
 
-			sendErr := s.sendSMTP([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID)
+			sendErr := s.sendSMTPWithConfig([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
 			if sendErr != nil {
 				slog.Error("SMTP send failed", "error", sendErr)
 			}
@@ -309,7 +325,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 		ID:        uuid.NewString(),
 		ThreadID:  thread.ID,
 		MessageID: msgID,
-		From:      s.emailCfg.FromEmail,
+		From:      fromEmail,
 		To:        req.To,
 		Cc:        strings.Join(req.Cc, ", "),
 		Subject:   req.Subject,
@@ -321,7 +337,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 	sentAt := now
 	msg.SentAt = &sentAt
 
-	sendErr := s.sendSMTP([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID)
+	sendErr := s.sendSMTPWithConfig([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
 	if sendErr != nil {
 		slog.Error("SMTP send failed", "error", sendErr)
 	}
@@ -355,6 +371,8 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 	now := time.Now()
 	msgID := uuid.NewString()
 
+	smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName := s.getEffectiveSMTPConfig(ctx, userID)
+
 	var inReplyTo string
 	if len(thread.Messages) > 0 {
 		inReplyTo = thread.Messages[len(thread.Messages)-1].MessageID
@@ -365,7 +383,7 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 		ThreadID:    threadID,
 		MessageID:   msgID,
 		InReplyTo:   inReplyTo,
-		From:        s.emailCfg.FromEmail,
+		From:        fromEmail,
 		To:          thread.ContactEmail,
 		Cc:          strings.Join(req.Cc, ", "),
 		Subject:     "Re: " + thread.Subject,
@@ -377,7 +395,7 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 	sentAt := now
 	msg.SentAt = &sentAt
 
-	sendErr := s.sendSMTP([]string{thread.ContactEmail}, "Re: "+thread.Subject, req.Body, req.BodyHTML, inReplyTo, msgID)
+	sendErr := s.sendSMTPWithConfig([]string{thread.ContactEmail}, "Re: "+thread.Subject, req.Body, req.BodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
 	if sendErr != nil {
 		slog.Error("SMTP reply failed", "error", sendErr)
 	}
@@ -532,7 +550,8 @@ func (s *communicationService) executeBulkJob(job *model.BulkEmailJob, contactID
 		sentAt := time.Now()
 		msg.SentAt = &sentAt
 
-		sendErr := s.sendSMTP([]string{thread.ContactEmail}, job.Subject, job.Body, job.BodyHTML, "", msgID)
+		sendErr := s.sendSMTPWithConfig([]string{thread.ContactEmail}, job.Subject, job.Body, job.BodyHTML, "", msgID,
+			s.emailCfg.SMTPHost, s.emailCfg.SMTPPort, s.emailCfg.SMTPUser, s.emailCfg.SMTPPass, s.emailCfg.FromEmail, s.emailCfg.FromName)
 		if sendErr != nil {
 			slog.Error("Bulk SMTP send failed", "error", sendErr, "contact", cid)
 			job.FailedCount++
@@ -740,21 +759,27 @@ func (s *communicationService) GetStats(ctx context.Context) (*dto.StatsResponse
 	}, nil
 }
 
-func (s *communicationService) SyncInbox(ctx context.Context) (*dto.SyncStatusResponse, error) {
-	cfg := s.emailCfg
-	if cfg.SMTPUser == "" {
+func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*dto.SyncStatusResponse, error) {
+	account, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil {
+		return nil, ErrInternal
+	}
+	if account == nil {
 		return &dto.SyncStatusResponse{
-			Connected:    false,
-			EmailAddress: "",
-			Error:        "SMTP/IMAP not configured. Set SMTP_USER, SMTP_PASS, SMTP_HOST env vars.",
+			Connected: false,
+			Error:     "No email account configured. Go to Settings to connect your email.",
 		}, nil
 	}
 
-	now := time.Now()
+	result := SyncIMAPInbox(ctx, account, s.repo)
+
 	return &dto.SyncStatusResponse{
-		Connected:    true,
-		LastSync:     &now,
-		EmailAddress: cfg.SMTPUser,
+		Connected:    result.Error == "",
+		LastSync:     account.LastSyncAt,
+		EmailAddress: account.Email,
+		Provider:     account.Provider,
+		NewMessages:  result.NewMessages,
+		Error:        result.Error,
 	}, nil
 }
 
@@ -769,4 +794,151 @@ func (s *communicationService) GetContactThreads(ctx context.Context, contactID 
 		result = append(result, &r)
 	}
 	return result, nil
+}
+
+func toAccountResponse(a *model.EmailAccount) *dto.EmailAccountResponse {
+	return &dto.EmailAccountResponse{
+		ID:          a.ID,
+		Provider:    a.Provider,
+		Email:       a.Email,
+		IMAPHost:    a.IMAPHost,
+		IMAPPort:    a.IMAPPort,
+		SMTPHost:    a.SMTPHost,
+		SMTPPort:    a.SMTPPort,
+		IsActive:    a.IsActive,
+		LastSyncAt:  a.LastSyncAt,
+		SyncedCount: a.SyncedCount,
+		CreatedAt:   a.CreatedAt,
+	}
+}
+
+func (s *communicationService) CreateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountRequest) (*dto.EmailAccountResponse, error) {
+	existing, _ := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if existing != nil {
+		return nil, fmt.Errorf("email account already exists, update it instead")
+	}
+
+	imapHost, imapPort, smtpHost, smtpPort := ProviderDefaults(req.Provider)
+	if req.IMAPHost != "" {
+		imapHost = req.IMAPHost
+	}
+	if req.IMAPPort > 0 {
+		imapPort = req.IMAPPort
+	}
+	if req.SMTPHost != "" {
+		smtpHost = req.SMTPHost
+	}
+	if req.SMTPPort > 0 {
+		smtpPort = req.SMTPPort
+	}
+
+	account := &model.EmailAccount{
+		ID:       uuid.NewString(),
+		UserID:   userID,
+		Provider: req.Provider,
+		Email:    req.Email,
+		Password: req.Password,
+		IMAPHost: imapHost,
+		IMAPPort: imapPort,
+		SMTPHost: smtpHost,
+		SMTPPort: smtpPort,
+		IsActive: true,
+	}
+
+	if err := s.repo.CreateEmailAccount(ctx, account); err != nil {
+		return nil, ErrInternal
+	}
+	return toAccountResponse(account), nil
+}
+
+func (s *communicationService) GetEmailAccount(ctx context.Context, userID string) (*dto.EmailAccountResponse, error) {
+	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil {
+		return nil, ErrInternal
+	}
+	if a == nil {
+		return nil, nil
+	}
+	return toAccountResponse(a), nil
+}
+
+func (s *communicationService) UpdateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountUpdateRequest) (*dto.EmailAccountResponse, error) {
+	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil || a == nil {
+		return nil, ErrInternal
+	}
+
+	if req.Provider != "" {
+		a.Provider = req.Provider
+		imapHost, imapPort, smtpHost, smtpPort := ProviderDefaults(req.Provider)
+		if a.IMAPHost == "" || req.Provider != a.Provider {
+			a.IMAPHost = imapHost
+			a.IMAPPort = imapPort
+			a.SMTPHost = smtpHost
+			a.SMTPPort = smtpPort
+		}
+	}
+	if req.Email != "" {
+		a.Email = req.Email
+	}
+	if req.Password != "" {
+		a.Password = req.Password
+	}
+	if req.IMAPHost != "" {
+		a.IMAPHost = req.IMAPHost
+	}
+	if req.IMAPPort > 0 {
+		a.IMAPPort = req.IMAPPort
+	}
+	if req.SMTPHost != "" {
+		a.SMTPHost = req.SMTPHost
+	}
+	if req.SMTPPort > 0 {
+		a.SMTPPort = req.SMTPPort
+	}
+
+	if err := s.repo.UpdateEmailAccount(ctx, a); err != nil {
+		return nil, ErrInternal
+	}
+	return toAccountResponse(a), nil
+}
+
+func (s *communicationService) DeleteEmailAccount(ctx context.Context, userID string) error {
+	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil || a == nil {
+		return ErrInternal
+	}
+	return s.repo.DeleteEmailAccount(ctx, a.ID)
+}
+
+func (s *communicationService) TestConnection(ctx context.Context, userID string) (*dto.TestConnectionResponse, error) {
+	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil || a == nil {
+		return &dto.TestConnectionResponse{
+			IMAPStatus: "error",
+			SMTPStatus: "error",
+			Error:      "No email account configured.",
+		}, nil
+	}
+
+	resp := &dto.TestConnectionResponse{}
+
+	if err := TestIMAPConnection(a.IMAPHost, a.IMAPPort, a.Email, a.Password); err != nil {
+		resp.IMAPStatus = "error"
+		resp.Error = fmt.Sprintf("IMAP: %v", err)
+	} else {
+		resp.IMAPStatus = "ok"
+	}
+
+	if err := TestSMTPConnection(a.SMTPHost, a.SMTPPort, a.Email, a.Password); err != nil {
+		resp.SMTPStatus = "error"
+		if resp.Error != "" {
+			resp.Error += "; "
+		}
+		resp.Error += fmt.Sprintf("SMTP: %v", err)
+	} else {
+		resp.SMTPStatus = "ok"
+	}
+
+	return resp, nil
 }
