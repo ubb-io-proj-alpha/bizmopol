@@ -26,6 +26,8 @@ const router = createRouter({
                 { path: "courses", name: "courses", component: () => import("./views/CoursesView.vue") },
                 { path: "documents", name: "documents", component: () => import("./views/DocumentsView.vue") },
                 { path: "calendar", name: "calendar", component: () => import("./views/CalendarView.vue") },
+                { path: "pipelines", name: "pipelines", component: () => import("./views/PipelinesView.vue") },
+                { path: "pipelines/:id/kanban", name: "kanban", component: () => import("./views/KanbanView.vue") },
             ],
         },
     ],
