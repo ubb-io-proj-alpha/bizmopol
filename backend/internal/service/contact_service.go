@@ -134,6 +134,7 @@ func (s *contactService) applyCustomValues(ctx context.Context, contactID string
 }
 
 func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequest) (*dto.ContactResponse, error) {
+    debugLog("Contact.Create", "name", input.Name, "email", input.Email, "status", input.Status)
     status := input.Status
     if status == "" {
         status = "lead"
@@ -166,12 +167,14 @@ func (s *contactService) Create(ctx context.Context, input dto.ContactCreateRequ
     if updated == nil {
         updated = c
     }
+    debugLogResult("Contact.Create", nil, "id", updated.ID)
     fm := s.fieldMap(ctx)
     r := toContactResponse(updated, fm)
     return &r, nil
 }
 
 func (s *contactService) GetByID(ctx context.Context, id string) (*dto.ContactResponse, error) {
+    debugLog("Contact.GetByID", "id", id)
     c, err := s.repo.FindByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -179,12 +182,14 @@ func (s *contactService) GetByID(ctx context.Context, id string) (*dto.ContactRe
     if c == nil {
         return nil, nil
     }
+    debugLogResult("Contact.GetByID", nil, "found", c != nil)
     fm := s.fieldMap(ctx)
     r := toContactResponse(c, fm)
     return &r, nil
 }
 
 func (s *contactService) Update(ctx context.Context, id string, input dto.ContactUpdateRequest) (*dto.ContactResponse, error) {
+    debugLog("Contact.Update", "id", id, "name", input.Name, "status", input.Status)
     c, err := s.repo.FindByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -227,12 +232,14 @@ func (s *contactService) Update(ctx context.Context, id string, input dto.Contac
     if updated == nil {
         updated = c
     }
+    debugLogResult("Contact.Update", nil, "id", id)
     fm := s.fieldMap(ctx)
     r := toContactResponse(updated, fm)
     return &r, nil
 }
 
 func (s *contactService) UpdateDnd(ctx context.Context, id string, input dto.DndUpdateRequest) (*dto.ContactResponse, error) {
+    debugLog("Contact.UpdateDnd", "id", id, "active", input.DndActive, "type", input.DndType)
     c, err := s.repo.FindByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -257,10 +264,14 @@ func (s *contactService) UpdateDnd(ctx context.Context, id string, input dto.Dnd
 }
 
 func (s *contactService) Delete(ctx context.Context, id string) error {
-    return s.repo.Delete(ctx, id)
+    debugLog("Contact.Delete", "id", id)
+    err := s.repo.Delete(ctx, id)
+    debugLogResult("Contact.Delete", err)
+    return err
 }
 
 func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.ContactListResponse, error) {
+    debugLog("Contact.List", "search", q.Search, "status", q.Status, "page", q.Page, "pageSize", q.PageSize)
     pageSize := q.PageSize
     if pageSize <= 0 {
         pageSize = 20
@@ -272,8 +283,10 @@ func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.Con
 
     contacts, total, err := s.repo.List(ctx, q.Search, q.Status, q.Tags, q.SortBy, q.SortDir, page, pageSize)
     if err != nil {
+        debugLogResult("Contact.List", err)
         return nil, ErrInternal
     }
+    debugLogResult("Contact.List", nil, "total", total, "returned", len(contacts))
     fm := s.fieldMap(ctx)
     items := make([]dto.ContactResponse, 0, len(contacts))
     for _, c := range contacts {
@@ -290,6 +303,7 @@ func (s *contactService) List(ctx context.Context, q dto.ContactQuery) (*dto.Con
 }
 
 func (s *contactService) Merge(ctx context.Context, userID string, input dto.MergeRequest) (*dto.ContactResponse, error) {
+    debugLog("Contact.Merge", "user_id", userID, "group_name", input.GroupName, "contact_count", len(input.ContactIDs))
     members, err := s.repo.FindByIDs(ctx, input.ContactIDs)
     if err != nil {
         return nil, ErrInternal
@@ -333,12 +347,14 @@ func (s *contactService) Merge(ctx context.Context, userID string, input dto.Mer
         return nil, ErrInternal
     }
 
+    debugLogResult("Contact.Merge", nil, "group_id", group.ID)
     fm := s.fieldMap(ctx)
     r := toContactResponse(group, fm)
     return &r, nil
 }
 
 func (s *contactService) GetGroupMembers(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupMembersResponse, error) {
+    debugLog("Contact.GetGroupMembers", "group_id", groupID, "page", page)
     if pageSize <= 0 {
         pageSize = 10
     }
@@ -365,6 +381,7 @@ func (s *contactService) GetGroupMembers(ctx context.Context, groupID string, pa
 }
 
 func (s *contactService) GetGroupHistory(ctx context.Context, groupID string, page, pageSize int) (*dto.GroupHistoryResponse, error) {
+    debugLog("Contact.GetGroupHistory", "group_id", groupID, "page", page)
     if pageSize <= 0 {
         pageSize = 10
     }
@@ -390,6 +407,7 @@ func (s *contactService) GetGroupHistory(ctx context.Context, groupID string, pa
 }
 
 func (s *contactService) AddHistory(ctx context.Context, contactID, userID string, input dto.AddHistoryRequest) (*dto.ContactHistoryResponse, error) {
+    debugLog("Contact.AddHistory", "contact_id", contactID, "action", input.Action)
     h := &model.ContactHistory{
         ID:          uuid.NewString(),
         ContactID:   contactID,
@@ -410,6 +428,7 @@ func (s *contactService) AddHistory(ctx context.Context, contactID, userID strin
 }
 
 func (s *contactService) ListHistory(ctx context.Context, contactID string) ([]dto.ContactHistoryResponse, error) {
+    debugLog("Contact.ListHistory", "contact_id", contactID)
     items, err := s.repo.ListHistory(ctx, contactID)
     if err != nil {
         return nil, ErrInternal

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from "vue"
+import { ref, reactive, onMounted, computed, inject } from "vue"
 import { useRouter } from "vue-router"
 import { useTableQuery } from "../composables/useTableQuery.js"
 
@@ -8,6 +8,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const confirm = inject("confirm")
 
 const contacts = ref([])
 const total = ref(0)
@@ -237,7 +238,7 @@ async function saveContact() {
 }
 
 async function deleteContact(id) {
-    if (!confirm("Usunąć kontakt?")) return
+    if (!await confirm({ title: "Usuń kontakt", message: "Kontakt i cała historia zostaną trwale usunięte.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         const res = await props.authFetch("/api/v1/contacts/" + id, { method: "DELETE" })
         if (!res.ok && res.status !== 204) throw new Error("Błąd usuwania")

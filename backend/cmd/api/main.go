@@ -16,6 +16,8 @@ import (
     "backend/internal/config"
     "backend/internal/model"
     "backend/internal/middleware"
+    "backend/internal/worker"
+    "backend/internal/ws"
 
     "github.com/gin-contrib/cors"
     "github.com/gin-gonic/gin"
@@ -28,7 +30,11 @@ func initLogger(cfg *config.Config) {
     var h slog.Handler
 
     if cfg.AppEnvironment == "production" {
-        h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+        level := slog.LevelInfo
+        if cfg.DebugLog {
+            level = slog.LevelDebug
+        }
+        h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
     } else {
         h = prettylogger.NewHandler(os.Stdout, prettylogger.HandlerOptions{
             SlogOpts: slog.HandlerOptions{
@@ -103,12 +109,19 @@ func main() {
     commHandler := handler.NewCommunicationHandler(commService)
 
     calRepo := repository.NewCalendarRepository(db)
-    calService := service.NewCalendarService(calRepo)
+    wsHub := ws.NewHub()
+    zoomWorker := worker.NewZoomWorker(calRepo, wsHub)
+    calService := service.NewCalendarService(calRepo, zoomWorker)
     calHandler := handler.NewCalendarHandler(calService)
 
     r := gin.Default()
 
     r.Use(cors.Default())
+
+    if cfg.DebugLog {
+        slog.Info("Debug logging enabled (DEBUG_LOG=true)")
+        r.Use(middleware.DebugLogger())
+    }
 
     api := r.Group("/api/v1")
     {
@@ -248,7 +261,12 @@ func main() {
                 zoom.POST("/test", calHandler.TestZoomConnection)
             }
         }
+
+        api.GET("/ws", middleware.JWTAuth(cfg.JWTSecret), wsHub.HandleWS)
     }
+
+    workerCtx, workerCancel := context.WithCancel(context.Background())
+    zoomWorker.Start(workerCtx)
 
     server := &http.Server{
         Addr:         ":" + cfg.Port,
@@ -277,6 +295,9 @@ func main() {
         slog.Error("Server forced to shutdown:", "error", err)
         os.Exit(1)
     }
+
+    workerCancel()
+    zoomWorker.Wait()
 
     slog.Info("Server exiting")
 }

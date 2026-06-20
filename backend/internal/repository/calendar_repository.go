@@ -51,7 +51,7 @@ func (r *calendarRepository) FindEventByID(ctx context.Context, id string) (*mod
 }
 
 func (r *calendarRepository) UpdateEvent(ctx context.Context, e *model.CalendarEvent) error {
-	return r.db.WithContext(ctx).Save(e).Error
+	return r.db.WithContext(ctx).Model(e).Select("*").Updates(e).Error
 }
 
 func (r *calendarRepository) DeleteEvent(ctx context.Context, id string) error {

@@ -1,6 +1,8 @@
 <script setup>
-import { computed } from "vue"
+import { computed, provide } from "vue"
 import { useRouter, useRoute } from "vue-router"
+import ToastNotification from "../components/ToastNotification.vue"
+import ConfirmModal from "../components/ConfirmModal.vue"
 
 const TOKEN_KEY = "jwt_token"
 const removeToken = () => localStorage.removeItem(TOKEN_KEY)
@@ -15,6 +17,7 @@ const authFetch = (url, options = {}) => {
     const token = getToken()
     return fetch(url, {
         ...options,
+        cache: "no-store",
         headers: {
             ...(options.headers || {}),
             "Authorization": token ? `Bearer ${token}` : "",
@@ -33,12 +36,9 @@ const navigate = (name) => router.push({ name })
 provide("authFetch", authFetch)
 </script>
 
-<script>
-import { provide } from "vue"
-export default {}
-</script>
-
 <template>
+    <ToastNotification>
+    <ConfirmModal>
     <div class="app-container">
         <aside class="sidebar">
             <div class="logo-section">
@@ -87,6 +87,8 @@ export default {}
             <router-view />
         </main>
     </div>
+    </ConfirmModal>
+    </ToastNotification>
 </template>
 
 <style scoped>

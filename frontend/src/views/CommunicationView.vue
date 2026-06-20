@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, inject, computed, watch } from "vue"
 
 const authFetch = inject("authFetch")
+const confirm = inject("confirm")
 
 const activeTab = ref("inbox")
 const loading = ref(false)
@@ -247,7 +248,7 @@ async function archiveThread(threadId) {
 }
 
 async function deleteThread(threadId) {
-    if (!confirm("Usunąć wątek?")) return
+    if (!await confirm({ title: "Usuń wątek", message: "Wątek i wszystkie wiadomości zostaną trwale usunięte.", confirmLabel: "Usuń", variant: "danger" })) return
     await authFetch("/api/v1/communication/threads/" + threadId, { method: "DELETE" })
     if (selectedThread.value?.id === threadId) selectedThread.value = null
     await loadThreads()
@@ -357,7 +358,7 @@ async function saveTemplate() {
 }
 
 async function deleteTemplate(id) {
-    if (!confirm("Usunąć szablon?")) return
+    if (!await confirm({ title: "Usuń szablon", message: "Szablon zostanie trwale usunięty.", confirmLabel: "Usuń", variant: "danger" })) return
     await authFetch("/api/v1/communication/templates/" + id, { method: "DELETE" })
     await loadTemplates()
 }
@@ -407,7 +408,7 @@ async function saveSignature() {
 }
 
 async function deleteSignature(id) {
-    if (!confirm("Usunąć podpis?")) return
+    if (!await confirm({ title: "Usuń podpis", message: "Podpis zostanie trwale usunięty.", confirmLabel: "Usuń", variant: "danger" })) return
     await authFetch("/api/v1/communication/signatures/" + id, { method: "DELETE" })
     await loadSignatures()
 }
@@ -621,7 +622,7 @@ async function testConnection() {
 }
 
 async function disconnectAccount() {
-    if (!confirm("Disconnect email account? Your synced emails will remain.")) return
+    if (!await confirm({ title: "Rozłącz konto email", message: "Konto email zostanie rozłączone. Zsynchronizowane wiadomości pozostaną.", confirmLabel: "Rozłącz", variant: "danger" })) return
     try {
         await authFetch("/api/v1/communication/account/", { method: "DELETE" })
         emailAccount.value = null

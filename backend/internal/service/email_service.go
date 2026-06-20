@@ -261,6 +261,7 @@ func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bo
 }
 
 func (s *communicationService) SendEmail(ctx context.Context, userID string, req dto.SendEmailRequest) (*dto.ThreadResponse, error) {
+	debugLog("Comm.SendEmail", "user_id", userID, "to", req.To, "subject", req.Subject, "thread_id", req.ThreadID)
 	now := time.Now()
 	msgID := uuid.NewString()
 
@@ -363,6 +364,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 }
 
 func (s *communicationService) ReplyToThread(ctx context.Context, userID, threadID string, req dto.ReplyEmailRequest) (*dto.MessageResponse, error) {
+	debugLog("Comm.ReplyToThread", "user_id", userID, "thread_id", threadID)
 	thread, err := s.repo.FindThreadByID(ctx, threadID)
 	if err != nil || thread == nil {
 		return nil, ErrInternal
@@ -413,6 +415,7 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 }
 
 func (s *communicationService) ListThreads(ctx context.Context, q dto.ThreadQuery) (*dto.ThreadListResponse, error) {
+	debugLog("Comm.ListThreads", "search", q.Search, "status", q.Status, "page", q.Page)
 	pageSize := q.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
@@ -443,6 +446,7 @@ func (s *communicationService) ListThreads(ctx context.Context, q dto.ThreadQuer
 }
 
 func (s *communicationService) GetThread(ctx context.Context, id string) (*dto.ThreadResponse, error) {
+	debugLog("Comm.GetThread", "id", id)
 	t, err := s.repo.FindThreadByID(ctx, id)
 	if err != nil {
 		return nil, ErrInternal
@@ -455,14 +459,17 @@ func (s *communicationService) GetThread(ctx context.Context, id string) (*dto.T
 }
 
 func (s *communicationService) DeleteThread(ctx context.Context, id string) error {
+	debugLog("Comm.DeleteThread", "id", id)
 	return s.repo.DeleteThread(ctx, id)
 }
 
 func (s *communicationService) MarkThreadRead(ctx context.Context, id string) error {
+	debugLog("Comm.MarkThreadRead", "id", id)
 	return s.repo.MarkMessagesRead(ctx, id)
 }
 
 func (s *communicationService) ArchiveThread(ctx context.Context, id string) error {
+	debugLog("Comm.ArchiveThread", "id", id)
 	t, err := s.repo.FindThreadByID(ctx, id)
 	if err != nil || t == nil {
 		return ErrInternal
@@ -472,10 +479,12 @@ func (s *communicationService) ArchiveThread(ctx context.Context, id string) err
 }
 
 func (s *communicationService) StarMessage(ctx context.Context, msgID string, starred bool) error {
+	debugLog("Comm.StarMessage", "msg_id", msgID, "starred", starred)
 	return s.repo.StarMessage(ctx, msgID, starred)
 }
 
 func (s *communicationService) UpdateThreadStatus(ctx context.Context, id, status string) error {
+	debugLog("Comm.UpdateThreadStatus", "id", id, "status", status)
 	t, err := s.repo.FindThreadByID(ctx, id)
 	if err != nil || t == nil {
 		return ErrInternal
@@ -485,6 +494,7 @@ func (s *communicationService) UpdateThreadStatus(ctx context.Context, id, statu
 }
 
 func (s *communicationService) SendBulkEmail(ctx context.Context, userID string, req dto.BulkEmailRequest) (*dto.BulkEmailResponse, error) {
+	debugLog("Comm.SendBulkEmail", "user_id", userID, "name", req.Name, "contact_count", len(req.ContactIDs))
 	contactIDsJSON, _ := json.Marshal(req.ContactIDs)
 
 	job := &model.BulkEmailJob{
@@ -574,6 +584,7 @@ func (s *communicationService) executeBulkJob(job *model.BulkEmailJob, contactID
 }
 
 func (s *communicationService) ListBulkJobs(ctx context.Context) ([]*dto.BulkEmailResponse, error) {
+	debugLog("Comm.ListBulkJobs")
 	jobs, err := s.repo.ListBulkJobs(ctx)
 	if err != nil {
 		return nil, ErrInternal
@@ -586,6 +597,7 @@ func (s *communicationService) ListBulkJobs(ctx context.Context) ([]*dto.BulkEma
 }
 
 func (s *communicationService) GetBulkJob(ctx context.Context, id string) (*dto.BulkEmailResponse, error) {
+	debugLog("Comm.GetBulkJob", "id", id)
 	j, err := s.repo.FindBulkJobByID(ctx, id)
 	if err != nil {
 		return nil, ErrInternal
@@ -597,6 +609,7 @@ func (s *communicationService) GetBulkJob(ctx context.Context, id string) (*dto.
 }
 
 func (s *communicationService) ListTemplates(ctx context.Context) ([]*dto.TemplateResponse, error) {
+	debugLog("Comm.ListTemplates")
 	templates, err := s.repo.ListTemplates(ctx)
 	if err != nil {
 		return nil, ErrInternal
@@ -609,6 +622,7 @@ func (s *communicationService) ListTemplates(ctx context.Context) ([]*dto.Templa
 }
 
 func (s *communicationService) CreateTemplate(ctx context.Context, req dto.TemplateCreateRequest) (*dto.TemplateResponse, error) {
+	debugLog("Comm.CreateTemplate", "name", req.Name, "subject", req.Subject)
 	t := &model.EmailTemplate{
 		ID:       uuid.NewString(),
 		Name:     req.Name,
@@ -624,6 +638,7 @@ func (s *communicationService) CreateTemplate(ctx context.Context, req dto.Templ
 }
 
 func (s *communicationService) UpdateTemplate(ctx context.Context, id string, req dto.TemplateUpdateRequest) (*dto.TemplateResponse, error) {
+	debugLog("Comm.UpdateTemplate", "id", id, "name", req.Name)
 	t, err := s.repo.FindTemplateByID(ctx, id)
 	if err != nil {
 		return nil, ErrInternal
@@ -653,10 +668,12 @@ func (s *communicationService) UpdateTemplate(ctx context.Context, id string, re
 }
 
 func (s *communicationService) DeleteTemplate(ctx context.Context, id string) error {
+	debugLog("Comm.DeleteTemplate", "id", id)
 	return s.repo.DeleteTemplate(ctx, id)
 }
 
 func (s *communicationService) ListSignatures(ctx context.Context, userID string) ([]*dto.SignatureResponse, error) {
+	debugLog("Comm.ListSignatures", "user_id", userID)
 	sigs, err := s.repo.ListSignatures(ctx, userID)
 	if err != nil {
 		return nil, ErrInternal
@@ -669,6 +686,7 @@ func (s *communicationService) ListSignatures(ctx context.Context, userID string
 }
 
 func (s *communicationService) CreateSignature(ctx context.Context, userID string, req dto.SignatureCreateRequest) (*dto.SignatureResponse, error) {
+	debugLog("Comm.CreateSignature", "user_id", userID, "name", req.Name, "is_default", req.IsDefault)
 	if req.IsDefault {
 		_ = s.repo.ClearDefaultSignatures(ctx, userID)
 	}
@@ -686,6 +704,7 @@ func (s *communicationService) CreateSignature(ctx context.Context, userID strin
 }
 
 func (s *communicationService) UpdateSignature(ctx context.Context, id, userID string, req dto.SignatureUpdateRequest) (*dto.SignatureResponse, error) {
+	debugLog("Comm.UpdateSignature", "id", id, "user_id", userID, "name", req.Name)
 	sg, err := s.repo.FindSignatureByID(ctx, id)
 	if err != nil {
 		return nil, ErrInternal
@@ -710,10 +729,12 @@ func (s *communicationService) UpdateSignature(ctx context.Context, id, userID s
 }
 
 func (s *communicationService) DeleteSignature(ctx context.Context, id string) error {
+	debugLog("Comm.DeleteSignature", "id", id)
 	return s.repo.DeleteSignature(ctx, id)
 }
 
 func (s *communicationService) GetStats(ctx context.Context) (*dto.StatsResponse, error) {
+	debugLog("Comm.GetStats")
 	stats, err := s.repo.Stats(ctx)
 	if err != nil {
 		return nil, ErrInternal
@@ -760,6 +781,7 @@ func (s *communicationService) GetStats(ctx context.Context) (*dto.StatsResponse
 }
 
 func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*dto.SyncStatusResponse, error) {
+	debugLog("Comm.SyncInbox", "user_id", userID)
 	account, err := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if err != nil {
 		return nil, ErrInternal
@@ -784,6 +806,7 @@ func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*d
 }
 
 func (s *communicationService) GetContactThreads(ctx context.Context, contactID string) ([]*dto.ThreadResponse, error) {
+	debugLog("Comm.GetContactThreads", "contact_id", contactID)
 	threads, _, err := s.repo.ListThreads(ctx, "", "", "", contactID, 1, 50)
 	if err != nil {
 		return nil, ErrInternal
@@ -813,6 +836,7 @@ func toAccountResponse(a *model.EmailAccount) *dto.EmailAccountResponse {
 }
 
 func (s *communicationService) CreateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountRequest) (*dto.EmailAccountResponse, error) {
+	debugLog("Comm.CreateEmailAccount", "user_id", userID, "provider", req.Provider, "email", req.Email)
 	existing, _ := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if existing != nil {
 		return nil, fmt.Errorf("email account already exists, update it instead")
@@ -852,6 +876,7 @@ func (s *communicationService) CreateEmailAccount(ctx context.Context, userID st
 }
 
 func (s *communicationService) GetEmailAccount(ctx context.Context, userID string) (*dto.EmailAccountResponse, error) {
+	debugLog("Comm.GetEmailAccount", "user_id", userID)
 	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if err != nil {
 		return nil, ErrInternal
@@ -863,6 +888,7 @@ func (s *communicationService) GetEmailAccount(ctx context.Context, userID strin
 }
 
 func (s *communicationService) UpdateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountUpdateRequest) (*dto.EmailAccountResponse, error) {
+	debugLog("Comm.UpdateEmailAccount", "user_id", userID, "provider", req.Provider, "email", req.Email)
 	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if err != nil || a == nil {
 		return nil, ErrInternal
@@ -904,6 +930,7 @@ func (s *communicationService) UpdateEmailAccount(ctx context.Context, userID st
 }
 
 func (s *communicationService) DeleteEmailAccount(ctx context.Context, userID string) error {
+	debugLog("Comm.DeleteEmailAccount", "user_id", userID)
 	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if err != nil || a == nil {
 		return ErrInternal
@@ -912,6 +939,7 @@ func (s *communicationService) DeleteEmailAccount(ctx context.Context, userID st
 }
 
 func (s *communicationService) TestConnection(ctx context.Context, userID string) (*dto.TestConnectionResponse, error) {
+	debugLog("Comm.TestConnection", "user_id", userID)
 	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
 	if err != nil || a == nil {
 		return &dto.TestConnectionResponse{

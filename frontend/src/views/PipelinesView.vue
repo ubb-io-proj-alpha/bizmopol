@@ -3,6 +3,7 @@ import { ref, reactive, onMounted, inject } from "vue"
 import { useRouter } from "vue-router"
 
 const authFetch = inject("authFetch")
+const confirm = inject("confirm")
 const router = useRouter()
 
 const pipelines = ref([])
@@ -92,7 +93,7 @@ async function save() {
 }
 
 async function deletePipeline(id) {
-    if (!confirm("Usunąć pipeline?")) return
+    if (!await confirm({ title: "Usuń pipeline", message: "Pipeline i wszystkie etapy zostaną trwale usunięte.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         await authFetch("/api/v1/pipelines/" + id, { method: "DELETE" })
         await load()

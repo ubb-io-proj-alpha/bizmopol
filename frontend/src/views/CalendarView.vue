@@ -1,7 +1,9 @@
 <script setup>
-import { ref, reactive, onMounted, inject, computed, watch } from "vue"
+import { ref, reactive, onMounted, onUnmounted, inject, computed, watch } from "vue"
 
 const authFetch = inject("authFetch")
+const toast = inject("toast")
+const confirm = inject("confirm")
 
 const activeTab = ref("calendar")
 const loading = ref(false)
@@ -9,7 +11,6 @@ const formError = ref("")
 
 const stats = ref(null)
 const events = ref([])
-const upcomingEvents = ref([])
 
 const currentDate = ref(new Date())
 const selectedDate = ref(null)
@@ -23,6 +24,7 @@ const eventForm = reactive({
     allDay: false, location: "",
     contactId: "", contactName: "", contactEmail: "",
     createZoom: false, color: "", reminder: 15,
+    hasZoom: false, removeZoom: false, addZoom: false,
 })
 
 const zoomAccount = ref(null)
@@ -67,8 +69,8 @@ const calendarDays = computed(() => {
 function getEventsForDay(date) {
     const ds = formatDateKey(date)
     return events.value.filter(e => {
-        const es = e.start_time?.slice(0, 10)
-        return es === ds
+        if (!e.start_time) return false
+        return formatDateKey(new Date(e.start_time)) === ds
     })
 }
 
@@ -113,13 +115,6 @@ async function loadMonthEvents() {
     } catch (_) {} finally { loading.value = false }
 }
 
-async function loadUpcoming() {
-    try {
-        const res = await authFetch("/api/v1/calendar/upcoming")
-        if (res.ok) upcomingEvents.value = await res.json()
-    } catch (_) {}
-}
-
 async function loadContacts() {
     try {
         const params = new URLSearchParams({ page_size: "100" })
@@ -142,6 +137,7 @@ function openNewEvent(date) {
         allDay: false, location: "",
         contactId: "", contactName: "", contactEmail: "",
         createZoom: false, color: "", reminder: 15,
+        hasZoom: false, removeZoom: false, addZoom: false,
     })
     formError.value = ""
     showEventModal.value = true
@@ -152,6 +148,7 @@ function openEditEvent(event) {
     editingEventId.value = event.id
     const st = new Date(event.start_time)
     const et = new Date(event.end_time)
+    const eventHasZoom = event.zoom_meeting_id > 0
     Object.assign(eventForm, {
         title: event.title, description: event.description || "",
         eventType: event.event_type || "meeting",
@@ -166,6 +163,7 @@ function openEditEvent(event) {
         contactEmail: event.contact_email || "",
         createZoom: false, color: event.color || "",
         reminder: event.reminder || 15,
+        hasZoom: eventHasZoom, removeZoom: false, addZoom: false,
     })
     formError.value = ""
     showEventModal.value = true
@@ -197,10 +195,15 @@ async function saveEvent() {
                 contact_email: eventForm.contactEmail, color: eventForm.color,
                 reminder: eventForm.reminder,
             }
+            if (eventForm.removeZoom) payload.remove_zoom = true
+            if (eventForm.addZoom) payload.add_zoom = true
             const res = await authFetch("/api/v1/calendar/events/" + editingEventId.value, {
                 method: "PUT", body: JSON.stringify(payload),
             })
             if (!res.ok) throw new Error("Błąd aktualizacji")
+            if (eventForm.removeZoom) toast.show("Spotkanie Zoom zostanie usunięte", "info")
+            else if (eventForm.addZoom) toast.show("Spotkanie Zoom jest tworzone...", "info")
+            else toast.show("Wydarzenie zaktualizowane", "success")
         } else {
             const payload = {
                 title: eventForm.title, description: eventForm.description,
@@ -214,24 +217,55 @@ async function saveEvent() {
                 method: "POST", body: JSON.stringify(payload),
             })
             if (!res.ok) throw new Error("Błąd tworzenia")
+            toast.show(eventForm.createZoom ? "Wydarzenie utworzone ze spotkaniem Zoom" : "Wydarzenie utworzone", "success")
         }
         showEventModal.value = false
-        await Promise.all([loadMonthEvents(), loadUpcoming(), loadStats()])
-    } catch (e) { formError.value = e.message }
+        selectedEvent.value = null
+        await Promise.all([loadMonthEvents(), loadStats()])
+    } catch (e) {
+        formError.value = e.message
+        toast.show(e.message, "error")
+    }
 }
 
 async function deleteEvent(id) {
-    if (!confirm("Usunąć to wydarzenie?")) return
-    await authFetch("/api/v1/calendar/events/" + id, { method: "DELETE" })
-    selectedEvent.value = null
-    await Promise.all([loadMonthEvents(), loadUpcoming(), loadStats()])
+    const ev = selectedEvent.value
+    const hasZoom = ev && ev.zoom_meeting_id > 0
+    const msg = hasZoom ? "Wydarzenie oraz powiązane spotkanie Zoom zostaną trwale usunięte." : "Wydarzenie zostanie trwale usunięte."
+    if (!await confirm({ title: "Usuń wydarzenie", message: msg, confirmLabel: "Usuń", variant: "danger" })) return
+    try {
+        const res = await authFetch("/api/v1/calendar/events/" + id, { method: "DELETE" })
+        if (!res.ok) throw new Error("Błąd usuwania")
+        selectedEvent.value = null
+        toast.show(hasZoom ? "Wydarzenie usunięte, spotkanie Zoom anulowane" : "Wydarzenie usunięte", "success")
+        await Promise.all([loadMonthEvents(), loadStats()])
+    } catch (e) { toast.show(e.message, "error") }
 }
 
 async function updateEventStatus(id, status) {
-    await authFetch("/api/v1/calendar/events/" + id, {
-        method: "PUT", body: JSON.stringify({ status }),
-    })
-    await Promise.all([loadMonthEvents(), loadUpcoming(), loadStats()])
+    try {
+        const res = await authFetch("/api/v1/calendar/events/" + id, {
+            method: "PUT", body: JSON.stringify({ status }),
+        })
+        if (!res.ok) throw new Error("Błąd zmiany statusu")
+        const labels = { completed: "Wydarzenie zakończone", cancelled: "Wydarzenie anulowane", scheduled: "Wydarzenie przywrócone" }
+        toast.show(labels[status] || "Status zmieniony", status === "cancelled" ? "warning" : "success")
+        selectedEvent.value = null
+        await Promise.all([loadMonthEvents(), loadStats()])
+    } catch (e) { toast.show(e.message, "error") }
+}
+
+async function removeZoomFromEvent(id) {
+    if (!await confirm({ title: "Usuń spotkanie Zoom", message: "Spotkanie Zoom zostanie anulowane. Wydarzenie pozostanie jako offline.", confirmLabel: "Usuń Zoom", variant: "warning" })) return
+    try {
+        const res = await authFetch("/api/v1/calendar/events/" + id, {
+            method: "PUT", body: JSON.stringify({ remove_zoom: true }),
+        })
+        if (!res.ok) throw new Error("Błąd usuwania Zoom")
+        toast.show("Spotkanie Zoom zostanie usunięte", "info")
+        selectedEvent.value = null
+        await Promise.all([loadMonthEvents(), loadStats()])
+    } catch (e) { toast.show(e.message, "error") }
 }
 
 async function loadZoomAccount() {
@@ -269,7 +303,8 @@ async function saveZoomAccount() {
         if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Błąd zapisu") }
         zoomAccount.value = await res.json()
         zoomTestResult.value = null
-    } catch (e) { formError.value = e.message } finally { zoomSaving.value = false }
+        toast.show("Konto Zoom zapisane", "success")
+    } catch (e) { formError.value = e.message; toast.show(e.message, "error") } finally { zoomSaving.value = false }
 }
 
 async function testZoom() {
@@ -282,11 +317,14 @@ async function testZoom() {
 }
 
 async function disconnectZoom() {
-    if (!confirm("Rozłączyć konto Zoom?")) return
-    await authFetch("/api/v1/calendar/zoom/", { method: "DELETE" })
-    zoomAccount.value = null
-    Object.assign(zoomForm, { accountId: "", clientId: "", clientSecret: "" })
-    zoomTestResult.value = null
+    if (!await confirm({ title: "Rozłącz Zoom", message: "Konto Zoom zostanie rozłączone. Istniejące spotkania nie zostaną usunięte.", confirmLabel: "Rozłącz", variant: "danger" })) return
+    try {
+        await authFetch("/api/v1/calendar/zoom/", { method: "DELETE" })
+        zoomAccount.value = null
+        Object.assign(zoomForm, { accountId: "", clientId: "", clientSecret: "" })
+        zoomTestResult.value = null
+        toast.show("Konto Zoom rozłączone", "success")
+    } catch (e) { toast.show("Błąd rozłączania", "error") }
 }
 
 function formatTime(d) {
@@ -342,8 +380,60 @@ watch(activeTab, (tab) => {
     if (tab === "zoom") loadZoomAccount()
 })
 
+let socket = null
+let reconnectTimer = null
+
+function connectWebSocket() {
+    const token = localStorage.getItem("jwt_token")
+    if (!token) return
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:"
+    const wsUrl = `${proto}//${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`
+
+    socket = new WebSocket(wsUrl)
+
+    socket.onopen = () => {
+        console.log("[WS] connected")
+    }
+
+    socket.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data)
+            console.log("[WS] notification:", msg)
+
+            if (msg.type === "zoom_job_done") {
+                toast.show(msg.message, "success")
+                Promise.all([loadMonthEvents(), loadStats()])
+            } else if (msg.type === "zoom_job_failed") {
+                toast.show(msg.message, "error")
+            }
+        } catch (e) {
+            console.error("[WS] parse error:", e)
+        }
+    }
+
+    socket.onclose = () => {
+        console.log("[WS] disconnected, reconnecting in 5s...")
+        reconnectTimer = setTimeout(connectWebSocket, 5000)
+    }
+
+    socket.onerror = (err) => {
+        console.error("[WS] error:", err)
+        socket.close()
+    }
+}
+
 onMounted(async () => {
-    await Promise.all([loadStats(), loadMonthEvents(), loadUpcoming(), loadZoomAccount()])
+    await Promise.all([loadStats(), loadMonthEvents(), loadZoomAccount()])
+    connectWebSocket()
+})
+
+onUnmounted(() => {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    if (socket) {
+        socket.onclose = null
+        socket.close()
+    }
 })
 </script>
 
@@ -374,7 +464,6 @@ onMounted(async () => {
 
         <div class="cal-tabs">
             <button :class="['tab-btn', { active: activeTab === 'calendar' }]" @click="activeTab = 'calendar'"><span class="material-icons">calendar_month</span> Kalendarz</button>
-            <button :class="['tab-btn', { active: activeTab === 'upcoming' }]" @click="activeTab = 'upcoming'"><span class="material-icons">schedule</span> Nadchodzące</button>
             <button :class="['tab-btn', { active: activeTab === 'zoom' }]" @click="activeTab = 'zoom'">
                 <span class="material-icons">videocam</span> Zoom
                 <span v-if="!zoomAccount" class="setup-dot"></span>
@@ -451,10 +540,13 @@ onMounted(async () => {
                     <div v-if="selectedEvent.description" class="ed-desc">{{ selectedEvent.description }}</div>
                     <div v-if="selectedEvent.zoom_join_url" class="ed-zoom">
                         <span class="material-icons" style="color:#2d8cff">videocam</span>
-                        <div>
+                        <div class="ed-zoom-info">
                             <a :href="selectedEvent.zoom_join_url" target="_blank" class="zoom-link">Dołącz do spotkania Zoom</a>
                             <div v-if="selectedEvent.zoom_passcode" class="zoom-pass">Hasło: {{ selectedEvent.zoom_passcode }}</div>
                         </div>
+                        <button class="btn-remove-zoom" @click="removeZoomFromEvent(selectedEvent.id)" title="Usuń spotkanie Zoom">
+                            <span class="material-icons">link_off</span>
+                        </button>
                     </div>
                     <div class="ed-status-actions">
                         <button v-if="selectedEvent.status === 'scheduled'" class="btn-xs-success" @click="updateEventStatus(selectedEvent.id, 'completed')"><span class="material-icons">check</span> Zakończ</button>
@@ -466,40 +558,6 @@ onMounted(async () => {
                 <div v-if="!selectedDate && !selectedEvent" class="sidebar-hint">
                     <span class="material-icons" style="font-size:2rem;color:#475569">touch_app</span>
                     <p>Kliknij dzień w kalendarzu, aby zobaczyć wydarzenia. Kliknij dwukrotnie, aby dodać nowe.</p>
-                </div>
-            </div>
-        </div>
-
-        <div v-if="activeTab === 'upcoming'" class="upcoming-section">
-            <h2>Nadchodzące wydarzenia</h2>
-            <div v-if="upcomingEvents.length === 0" class="empty">Brak nadchodzących wydarzeń.</div>
-            <div v-else class="upcoming-list">
-                <div v-for="ev in upcomingEvents" :key="ev.id" class="upcoming-card" :style="{ borderLeftColor: ev.color || '#38bdf8' }">
-                    <div class="uc-left">
-                        <div class="uc-date-box">
-                            <div class="uc-month">{{ new Date(ev.start_time).toLocaleDateString("pl-PL", { month: "short" }) }}</div>
-                            <div class="uc-day">{{ new Date(ev.start_time).getDate() }}</div>
-                        </div>
-                    </div>
-                    <div class="uc-info">
-                        <div class="uc-title">{{ ev.title }}</div>
-                        <div class="uc-time">
-                            <span class="material-icons" style="font-size:0.85rem">schedule</span>
-                            {{ formatTime(ev.start_time) }} - {{ formatTime(ev.end_time) }}
-                        </div>
-                        <div class="uc-meta">
-                            <span class="material-icons" style="font-size:0.85rem">{{ eventTypeIcon(ev.event_type) }}</span>
-                            {{ eventTypeLabel(ev.event_type) }}
-                            <span v-if="ev.contact_name"> &mdash; {{ ev.contact_name }}</span>
-                        </div>
-                    </div>
-                    <div class="uc-actions">
-                        <a v-if="ev.zoom_join_url" :href="ev.zoom_join_url" target="_blank" class="btn-zoom-join" title="Dołącz Zoom">
-                            <span class="material-icons">videocam</span>
-                        </a>
-                        <button class="btn-action-sm" @click="openEditEvent(ev)" title="Edytuj"><span class="material-icons">edit</span></button>
-                        <button class="btn-action-sm btn-danger" @click="deleteEvent(ev.id)" title="Usuń"><span class="material-icons">delete</span></button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -647,12 +705,32 @@ onMounted(async () => {
                     </div>
                 </div>
 
-                <div v-if="!editingEventId && zoomAccount" class="zoom-toggle">
-                    <label class="toggle-label">
-                        <input type="checkbox" v-model="eventForm.createZoom" class="toggle-input" />
-                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                        <span class="toggle-text"><span class="material-icons" style="font-size:1rem;vertical-align:middle;color:#2d8cff">videocam</span> Utwórz spotkanie Zoom automatycznie</span>
-                    </label>
+                <div v-if="zoomAccount" class="zoom-toggle">
+                    <template v-if="!editingEventId">
+                        <label class="toggle-label">
+                            <input type="checkbox" v-model="eventForm.createZoom" class="toggle-input" />
+                            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                            <span class="toggle-text"><span class="material-icons" style="font-size:1rem;vertical-align:middle;color:#2d8cff">videocam</span> Utwórz spotkanie Zoom automatycznie</span>
+                        </label>
+                    </template>
+                    <template v-else-if="eventForm.hasZoom">
+                        <div class="zoom-edit-info">
+                            <span class="material-icons" style="color:#2d8cff">videocam</span>
+                            <span class="zoom-edit-text">Spotkanie Zoom jest podłączone</span>
+                        </div>
+                        <label class="toggle-label toggle-danger">
+                            <input type="checkbox" v-model="eventForm.removeZoom" class="toggle-input" />
+                            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                            <span class="toggle-text"><span class="material-icons" style="font-size:1rem;vertical-align:middle;color:#f87171">link_off</span> Usuń spotkanie Zoom</span>
+                        </label>
+                    </template>
+                    <template v-else>
+                        <label class="toggle-label">
+                            <input type="checkbox" v-model="eventForm.addZoom" class="toggle-input" />
+                            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                            <span class="toggle-text"><span class="material-icons" style="font-size:1rem;vertical-align:middle;color:#2d8cff">videocam</span> Dodaj spotkanie Zoom</span>
+                        </label>
+                    </template>
                 </div>
 
                 <p v-if="formError" class="err-msg">{{ formError }}</p>
@@ -750,7 +828,6 @@ onMounted(async () => {
 .ed-ico { font-size: 1rem; color: #64748b; }
 .ed-email { color: #64748b; font-size: 0.82rem; }
 .ed-desc { color: #94a3b8; font-size: 0.85rem; margin-top: 10px; padding-top: 10px; border-top: 1px solid #334155; line-height: 1.5; }
-.ed-zoom { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; border: 1px solid #1e3a5f; }
 .zoom-link { color: #2d8cff; font-size: 0.88rem; text-decoration: none; font-weight: 500; }
 .zoom-link:hover { text-decoration: underline; }
 .zoom-pass { color: #64748b; font-size: 0.78rem; margin-top: 2px; }
@@ -765,23 +842,6 @@ onMounted(async () => {
 .status-scheduled { color: #38bdf8; }
 .status-completed { color: #34d399; }
 .status-cancelled { color: #f87171; }
-
-.upcoming-section { padding: 4px 0; }
-.upcoming-section h2 { color: #f8fafc; font-size: 1.3rem; margin-bottom: 20px; }
-.empty { color: #64748b; padding: 40px; text-align: center; }
-.upcoming-list { display: flex; flex-direction: column; gap: 10px; }
-.upcoming-card { background: #1e293b; border: 1px solid #334155; border-left: 4px solid; border-radius: 10px; padding: 16px; display: flex; align-items: center; gap: 16px; }
-.uc-date-box { text-align: center; width: 52px; }
-.uc-month { color: #38bdf8; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; }
-.uc-day { color: #f1f5f9; font-size: 1.6rem; font-weight: 800; line-height: 1; }
-.uc-info { flex: 1; }
-.uc-title { color: #f1f5f9; font-weight: 600; margin-bottom: 4px; }
-.uc-time { color: #94a3b8; font-size: 0.82rem; display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
-.uc-meta { color: #64748b; font-size: 0.82rem; display: flex; align-items: center; gap: 4px; }
-.uc-actions { display: flex; gap: 6px; align-items: center; }
-.btn-zoom-join { background: #2d8cff; color: white; border: none; border-radius: 8px; padding: 8px 12px; cursor: pointer; display: flex; align-items: center; text-decoration: none; }
-.btn-zoom-join:hover { background: #1a73e8; }
-.btn-zoom-join .material-icons { font-size: 1.1rem; }
 
 .zoom-section { padding: 4px 0; max-width: 800px; }
 .zoom-section h2 { color: #f8fafc; font-size: 1.3rem; margin-bottom: 6px; }
@@ -873,4 +933,16 @@ onMounted(async () => {
 .toggle-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: white; border-radius: 50%; transition: 0.2s; }
 .toggle-input:checked + .toggle-track .toggle-thumb { left: 23px; }
 .toggle-text { color: #e2e8f0; font-size: 0.9rem; display: flex; align-items: center; gap: 4px; }
+
+.toggle-danger .toggle-input:checked + .toggle-track { background: #ef4444; }
+
+.btn-remove-zoom { background: none; border: none; color: #64748b; cursor: pointer; padding: 4px; border-radius: 6px; margin-left: auto; flex-shrink: 0; }
+.btn-remove-zoom:hover { color: #f87171; background: #3f1414; }
+.btn-remove-zoom .material-icons { font-size: 1rem; }
+
+.ed-zoom { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; border: 1px solid #1e3a5f; }
+.ed-zoom-info { flex: 1; }
+
+.zoom-edit-info { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #94a3b8; font-size: 0.88rem; }
+.zoom-edit-text { color: #e2e8f0; }
 </style>

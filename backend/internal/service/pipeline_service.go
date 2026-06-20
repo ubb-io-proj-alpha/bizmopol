@@ -63,6 +63,7 @@ func toPipelineResponse(p *model.Pipeline) *dto.PipelineResponse {
 }
 
 func (s *pipelineService) CreatePipeline(ctx context.Context, input dto.PipelineCreateRequest) (*dto.PipelineResponse, error) {
+    debugLog("Pipeline.CreatePipeline", "name", input.Name, "stages", len(input.Stages))
     p := &model.Pipeline{
         ID:          uuid.NewString(),
         Name:        input.Name,
@@ -93,6 +94,7 @@ func (s *pipelineService) CreatePipeline(ctx context.Context, input dto.Pipeline
 }
 
 func (s *pipelineService) GetPipeline(ctx context.Context, id string) (*dto.PipelineResponse, error) {
+    debugLog("Pipeline.GetPipeline", "id", id)
     p, err := s.repo.FindPipelineByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -104,6 +106,7 @@ func (s *pipelineService) GetPipeline(ctx context.Context, id string) (*dto.Pipe
 }
 
 func (s *pipelineService) UpdatePipeline(ctx context.Context, id string, input dto.PipelineUpdateRequest) (*dto.PipelineResponse, error) {
+    debugLog("Pipeline.UpdatePipeline", "id", id, "name", input.Name)
     p, err := s.repo.FindPipelineByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -126,10 +129,12 @@ func (s *pipelineService) UpdatePipeline(ctx context.Context, id string, input d
 }
 
 func (s *pipelineService) DeletePipeline(ctx context.Context, id string) error {
+    debugLog("Pipeline.DeletePipeline", "id", id)
     return s.repo.DeletePipeline(ctx, id)
 }
 
 func (s *pipelineService) ListPipelines(ctx context.Context) ([]*dto.PipelineResponse, error) {
+    debugLog("Pipeline.ListPipelines")
     pipelines, err := s.repo.ListPipelines(ctx)
     if err != nil {
         return nil, ErrInternal
@@ -142,6 +147,7 @@ func (s *pipelineService) ListPipelines(ctx context.Context) ([]*dto.PipelineRes
 }
 
 func (s *pipelineService) CreateStage(ctx context.Context, pipelineID string, input dto.StageCreateRequest) (*dto.StageResponse, error) {
+    debugLog("Pipeline.CreateStage", "pipeline_id", pipelineID, "name", input.Name)
     color := input.Color
     if color == "" {
         color = "#38bdf8"
@@ -161,6 +167,7 @@ func (s *pipelineService) CreateStage(ctx context.Context, pipelineID string, in
 }
 
 func (s *pipelineService) UpdateStage(ctx context.Context, id string, input dto.StageUpdateRequest) (*dto.StageResponse, error) {
+    debugLog("Pipeline.UpdateStage", "id", id, "name", input.Name)
     st, err := s.repo.FindStageByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -183,10 +190,12 @@ func (s *pipelineService) UpdateStage(ctx context.Context, id string, input dto.
 }
 
 func (s *pipelineService) DeleteStage(ctx context.Context, id string) error {
+    debugLog("Pipeline.DeleteStage", "id", id)
     return s.repo.DeleteStage(ctx, id)
 }
 
 func (s *pipelineService) MoveContact(ctx context.Context, pipelineID string, input dto.MoveContactRequest, userID string) error {
+    debugLog("Pipeline.MoveContact", "pipeline_id", pipelineID, "contact_id", input.ContactID, "stage_id", input.StageID)
     stage, err := s.repo.FindStageByID(ctx, input.StageID)
     if err != nil || stage == nil {
         return ErrInternal
@@ -227,6 +236,7 @@ func (s *pipelineService) MoveContact(ctx context.Context, pipelineID string, in
 }
 
 func (s *pipelineService) GetKanban(ctx context.Context, pipelineID string) (*dto.KanbanResponse, error) {
+    debugLog("Pipeline.GetKanban", "pipeline_id", pipelineID)
     p, err := s.repo.FindPipelineByID(ctx, pipelineID)
     if err != nil || p == nil {
         return nil, ErrInternal

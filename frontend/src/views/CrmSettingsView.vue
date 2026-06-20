@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, inject } from "vue"
 
 const authFetch = inject("authFetch")
+const confirm = inject("confirm")
 
 const activeTab = ref("tags")
 
@@ -101,7 +102,7 @@ async function saveTag() {
 }
 
 async function deleteTag(id) {
-    if (!confirm("Usunąć tag?")) return
+    if (!await confirm({ title: "Usuń tag", message: "Tag zostanie trwale usunięty ze wszystkich kontaktów.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         await authFetch("/api/v1/tags/" + id, { method: "DELETE" })
         await loadTags()
@@ -161,7 +162,7 @@ async function saveField() {
 }
 
 async function deleteField(id) {
-    if (!confirm("Usunąć pole? Wartości dla tego pola zostaną usunięte.")) return
+    if (!await confirm({ title: "Usuń pole niestandardowe", message: "Pole i wszystkie zapisane wartości dla tego pola zostaną trwale usunięte.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         await authFetch("/api/v1/custom-fields/" + id, { method: "DELETE" })
         await loadFields()

@@ -32,6 +32,8 @@ type EventUpdateRequest struct {
 	ContactEmail string     `json:"contact_email"`
 	Color        string     `json:"color"`
 	Reminder     *int       `json:"reminder"`
+	RemoveZoom   *bool      `json:"remove_zoom"`
+	AddZoom      *bool      `json:"add_zoom"`
 }
 
 type EventResponse struct {
