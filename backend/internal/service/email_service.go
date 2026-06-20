@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math"
 	"net/smtp"
-	"os"
 	"strings"
 	"time"
 
@@ -17,38 +16,10 @@ import (
 	"backend/internal/dto"
 	"backend/internal/model"
 	"backend/internal/repository"
+	"backend/internal/worker"
+	"backend/internal/ws"
 )
 
-type EmailConfig struct {
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUser     string
-	SMTPPass     string
-	IMAPHost     string
-	IMAPPort     string
-	FromName     string
-	FromEmail    string
-}
-
-func LoadEmailConfig() EmailConfig {
-	return EmailConfig{
-		SMTPHost:  getEmailEnv("SMTP_HOST", "smtp.gmail.com"),
-		SMTPPort:  getEmailEnv("SMTP_PORT", "587"),
-		SMTPUser:  getEmailEnv("SMTP_USER", ""),
-		SMTPPass:  getEmailEnv("SMTP_PASS", ""),
-		IMAPHost:  getEmailEnv("IMAP_HOST", "imap.gmail.com"),
-		IMAPPort:  getEmailEnv("IMAP_PORT", "993"),
-		FromName:  getEmailEnv("EMAIL_FROM_NAME", "BizmoPol CRM"),
-		FromEmail: getEmailEnv("EMAIL_FROM", ""),
-	}
-}
-
-func getEmailEnv(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return fallback
-}
 
 type CommunicationService interface {
 	SendEmail(ctx context.Context, userID string, req dto.SendEmailRequest) (*dto.ThreadResponse, error)
@@ -85,18 +56,23 @@ type CommunicationService interface {
 	UpdateEmailAccount(ctx context.Context, userID string, req dto.EmailAccountUpdateRequest) (*dto.EmailAccountResponse, error)
 	DeleteEmailAccount(ctx context.Context, userID string) error
 	TestConnection(ctx context.Context, userID string) (*dto.TestConnectionResponse, error)
+	GetQueueStatus(ctx context.Context) int
 }
 
 type communicationService struct {
-	repo      repository.CommunicationRepository
-	emailCfg  EmailConfig
+	repo        repository.CommunicationRepository
+	emailWorker *worker.EmailWorker
 }
 
-func NewCommunicationService(repo repository.CommunicationRepository) CommunicationService {
-	return &communicationService{
-		repo:     repo,
-		emailCfg: LoadEmailConfig(),
+func NewCommunicationService(repo repository.CommunicationRepository, w *worker.EmailWorker) CommunicationService {
+	svc := &communicationService{
+		repo:        repo,
+		emailWorker: w,
 	}
+	if w != nil {
+		w.SetSendFunc(svc.sendSMTPWithConfig)
+	}
+	return svc
 }
 
 func toThreadResponse(t *model.EmailThread) dto.ThreadResponse {
@@ -183,17 +159,23 @@ func toSignatureResponse(s *model.EmailSignature) *dto.SignatureResponse {
 
 func (s *communicationService) getEffectiveSMTPConfig(ctx context.Context, userID string) (smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) {
 	account, _ := s.repo.FindEmailAccountByUserID(ctx, userID)
-	if account != nil && account.SMTPHost != "" && account.Password != "" {
-		return account.SMTPHost, fmt.Sprintf("%d", account.SMTPPort), account.Email, account.Password, account.Email, s.emailCfg.FromName
+	if account != nil && account.SMTPHost != "" {
+		return account.SMTPHost, fmt.Sprintf("%d", account.SMTPPort), account.Email, account.Password, account.Email, "BizmoPol CRM"
 	}
-	return s.emailCfg.SMTPHost, s.emailCfg.SMTPPort, s.emailCfg.SMTPUser, s.emailCfg.SMTPPass, s.emailCfg.FromEmail, s.emailCfg.FromName
+	return "", "", "", "", "", ""
 }
 
 func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) error {
-	if smtpUser == "" {
+	if smtpHost == "" {
 		slog.Warn("SMTP not configured, skipping actual email send")
 		return nil
 	}
+
+	if len(to) == 0 || to[0] == "" {
+		return fmt.Errorf("no recipient address specified")
+	}
+
+	slog.Info("SMTP send starting", "to", to, "subject", subject, "host", smtpHost, "port", smtpPort)
 
 	fromHeader := fmt.Sprintf("%s <%s>", fromName, fromEmail)
 	toHeader := strings.Join(to, ", ")
@@ -223,13 +205,14 @@ func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bo
 		msg.WriteString(body)
 	}
 
-	auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
 	addr := smtpHost + ":" + smtpPort
 
 	if smtpPort == "465" {
+		auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
 		tlsCfg := &tls.Config{ServerName: smtpHost}
 		conn, err := tls.Dial("tcp", addr, tlsCfg)
 		if err != nil {
+			slog.Error("SMTP TLS dial failed", "error", err)
 			return err
 		}
 		defer conn.Close()
@@ -254,9 +237,17 @@ func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bo
 		}
 		_, err = w.Write([]byte(msg.String()))
 		w.Close()
+		slog.Info("SMTP send complete (TLS 465)", "to", to)
 		return err
 	}
 
+	if smtpPort == "1025" {
+		slog.Info("SMTP sending via mailpit (no auth)", "addr", addr)
+		return smtp.SendMail(addr, nil, fromEmail, to, []byte(msg.String()))
+	}
+
+	auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+	slog.Info("SMTP sending via STARTTLS", "addr", addr)
 	return smtp.SendMail(addr, auth, fromEmail, to, []byte(msg.String()))
 }
 
@@ -265,7 +256,7 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 	now := time.Now()
 	msgID := uuid.NewString()
 
-	smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName := s.getEffectiveSMTPConfig(ctx, userID)
+	_, _, _, _, fromEmail, _ := s.getEffectiveSMTPConfig(ctx, userID)
 
 	thread := &model.EmailThread{
 		ID:            uuid.NewString(),
@@ -298,17 +289,26 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 			sentAt := now
 			msg.SentAt = &sentAt
 
-			sendErr := s.sendSMTPWithConfig([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
-			if sendErr != nil {
-				slog.Error("SMTP send failed", "error", sendErr)
-			}
-
 			if err2 := s.repo.CreateMessage(ctx, msg); err2 != nil {
 				return nil, ErrInternal
 			}
 			existing.MessageCount++
 			existing.LastMessageAt = now
 			_ = s.repo.UpdateThread(ctx, existing)
+
+			if s.emailWorker != nil {
+				s.emailWorker.Enqueue(worker.EmailJob{
+					Type:      worker.EmailJobSend,
+					UserID:    userID,
+					MessageID: msg.ID,
+					ThreadID:  existing.ID,
+					To:        []string{req.To},
+					Subject:   req.Subject,
+					Body:      req.Body,
+					BodyHTML:  req.BodyHTML,
+					SmtpMsgID: msgID,
+				})
+			}
 
 			if req.TemplateID != "" {
 				_ = s.repo.IncrementTemplateUsage(ctx, req.TemplateID)
@@ -338,16 +338,25 @@ func (s *communicationService) SendEmail(ctx context.Context, userID string, req
 	sentAt := now
 	msg.SentAt = &sentAt
 
-	sendErr := s.sendSMTPWithConfig([]string{req.To}, req.Subject, req.Body, req.BodyHTML, "", msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
-	if sendErr != nil {
-		slog.Error("SMTP send failed", "error", sendErr)
-	}
-
 	if err := s.repo.CreateThread(ctx, thread); err != nil {
 		return nil, ErrInternal
 	}
 	if err := s.repo.CreateMessage(ctx, msg); err != nil {
 		return nil, ErrInternal
+	}
+
+	if s.emailWorker != nil {
+		s.emailWorker.Enqueue(worker.EmailJob{
+			Type:      worker.EmailJobSend,
+			UserID:    userID,
+			MessageID: msg.ID,
+			ThreadID:  thread.ID,
+			To:        []string{req.To},
+			Subject:   req.Subject,
+			Body:      req.Body,
+			BodyHTML:  req.BodyHTML,
+			SmtpMsgID: msgID,
+		})
 	}
 
 	if req.TemplateID != "" {
@@ -373,7 +382,7 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 	now := time.Now()
 	msgID := uuid.NewString()
 
-	smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName := s.getEffectiveSMTPConfig(ctx, userID)
+	_, _, _, _, fromEmail, _ := s.getEffectiveSMTPConfig(ctx, userID)
 
 	var inReplyTo string
 	if len(thread.Messages) > 0 {
@@ -397,11 +406,6 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 	sentAt := now
 	msg.SentAt = &sentAt
 
-	sendErr := s.sendSMTPWithConfig([]string{thread.ContactEmail}, "Re: "+thread.Subject, req.Body, req.BodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName)
-	if sendErr != nil {
-		slog.Error("SMTP reply failed", "error", sendErr)
-	}
-
 	if err2 := s.repo.CreateMessage(ctx, msg); err2 != nil {
 		return nil, ErrInternal
 	}
@@ -409,6 +413,21 @@ func (s *communicationService) ReplyToThread(ctx context.Context, userID, thread
 	thread.MessageCount++
 	thread.LastMessageAt = now
 	_ = s.repo.UpdateThread(ctx, thread)
+
+	if s.emailWorker != nil {
+		s.emailWorker.Enqueue(worker.EmailJob{
+			Type:      worker.EmailJobSend,
+			UserID:    userID,
+			MessageID: msg.ID,
+			ThreadID:  threadID,
+			To:        []string{thread.ContactEmail},
+			Subject:   "Re: " + thread.Subject,
+			Body:      req.Body,
+			BodyHTML:  req.BodyHTML,
+			InReplyTo: inReplyTo,
+			SmtpMsgID: msgID,
+		})
+	}
 
 	r := toMessageResponse(msg)
 	return &r, nil
@@ -520,6 +539,16 @@ func (s *communicationService) SendBulkEmail(ctx context.Context, userID string,
 	return toBulkJobResponse(job), nil
 }
 
+func replacePlaceholders(text string, contact *model.Contact) string {
+	r := strings.NewReplacer(
+		"{{name}}", contact.Name,
+		"{{company}}", contact.Company,
+		"{{email}}", contact.Email,
+		"{{phone}}", contact.Phone,
+	)
+	return r.Replace(text)
+}
+
 func (s *communicationService) executeBulkJob(job *model.BulkEmailJob, contactIDs []string) {
 	ctx := context.Background()
 	now := time.Now()
@@ -527,56 +556,44 @@ func (s *communicationService) executeBulkJob(job *model.BulkEmailJob, contactID
 	job.StartedAt = &now
 	_ = s.repo.UpdateBulkJob(ctx, job)
 
+	_, _, _, _, fromEmail, _ := s.getEffectiveSMTPConfig(ctx, job.UserID)
+
+	enqueued := 0
 	for _, cid := range contactIDs {
-		thread, err := s.repo.FindThreadByContactAndSubject(ctx, cid, job.Subject)
-		if err != nil || thread == nil {
-			thread = &model.EmailThread{
-				ID:            uuid.NewString(),
-				Subject:       job.Subject,
-				ContactID:     cid,
-				Status:        "open",
-				Direction:     "outbound",
-				LastMessageAt: time.Now(),
-				MessageCount:  1,
-			}
-			if createErr := s.repo.CreateThread(ctx, thread); createErr != nil {
-				job.FailedCount++
-				continue
-			}
-		}
-
-		msgID := uuid.NewString()
-		msg := &model.EmailMessage{
-			ID:        uuid.NewString(),
-			ThreadID:  thread.ID,
-			MessageID: msgID,
-			From:      s.emailCfg.FromEmail,
-			Subject:   job.Subject,
-			Body:      job.Body,
-			BodyHTML:  job.BodyHTML,
-			Direction: "outbound",
-			IsRead:    true,
-		}
-		sentAt := time.Now()
-		msg.SentAt = &sentAt
-
-		sendErr := s.sendSMTPWithConfig([]string{thread.ContactEmail}, job.Subject, job.Body, job.BodyHTML, "", msgID,
-			s.emailCfg.SMTPHost, s.emailCfg.SMTPPort, s.emailCfg.SMTPUser, s.emailCfg.SMTPPass, s.emailCfg.FromEmail, s.emailCfg.FromName)
-		if sendErr != nil {
-			slog.Error("Bulk SMTP send failed", "error", sendErr, "contact", cid)
+		contact, err := s.repo.FindContactByID(ctx, cid)
+		if err != nil || contact == nil || contact.Email == "" {
+			slog.Warn("BulkJob: no email for contact, skipping", "contact_id", cid)
 			job.FailedCount++
-		} else {
-			job.SentCount++
-			_ = s.repo.CreateMessage(ctx, msg)
+			continue
 		}
 
-		time.Sleep(100 * time.Millisecond)
-	}
+		body := replacePlaceholders(job.Body, contact)
+		bodyHTML := replacePlaceholders(job.BodyHTML, contact)
+		subject := replacePlaceholders(job.Subject, contact)
 
-	completed := time.Now()
-	job.CompletedAt = &completed
-	job.Status = "completed"
-	_ = s.repo.UpdateBulkJob(ctx, job)
+		enqueued++
+		if s.emailWorker != nil {
+			s.emailWorker.Enqueue(worker.EmailJob{
+				Type:         worker.EmailJobSend,
+				UserID:       job.UserID,
+				MessageID:    uuid.NewString(),
+				ThreadID:     uuid.NewString(),
+				To:           []string{contact.Email},
+				Subject:      subject,
+				Body:         body,
+				BodyHTML:     bodyHTML,
+				SmtpMsgID:    uuid.NewString(),
+				BulkJobID:    job.ID,
+				BulkSent:     enqueued,
+				BulkTotal:    job.TotalCount,
+				ContactID:    cid,
+				ContactEmail: contact.Email,
+				ContactName:  contact.Name,
+				FromEmail:    fromEmail,
+				DeferRecord:  true,
+			})
+		}
+	}
 
 	if job.TemplateID != "" {
 		_ = s.repo.IncrementTemplateUsage(ctx, job.TemplateID)
@@ -795,6 +812,18 @@ func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*d
 
 	result := SyncIMAPInbox(ctx, account, s.repo)
 
+	if s.emailWorker != nil {
+		nType := "email_sync_done"
+		message := fmt.Sprintf("Zsynchronizowano %d nowych wiadomości", result.NewMessages)
+		data := map[string]interface{}{"new_messages": result.NewMessages}
+		if result.Error != "" {
+			nType = "email_sync_failed"
+			message = result.Error
+			data["error"] = result.Error
+		}
+		s.emailWorker.Notify(userID, ws.Notification{Type: nType, Message: message, Data: data})
+	}
+
 	return &dto.SyncStatusResponse{
 		Connected:    result.Error == "",
 		LastSync:     account.LastSyncAt,
@@ -938,6 +967,13 @@ func (s *communicationService) DeleteEmailAccount(ctx context.Context, userID st
 	return s.repo.DeleteEmailAccount(ctx, a.ID)
 }
 
+func (s *communicationService) GetQueueStatus(ctx context.Context) int {
+	if s.emailWorker != nil {
+		return s.emailWorker.QueueLen()
+	}
+	return 0
+}
+
 func (s *communicationService) TestConnection(ctx context.Context, userID string) (*dto.TestConnectionResponse, error) {
 	debugLog("Comm.TestConnection", "user_id", userID)
 	a, err := s.repo.FindEmailAccountByUserID(ctx, userID)
@@ -951,7 +987,9 @@ func (s *communicationService) TestConnection(ctx context.Context, userID string
 
 	resp := &dto.TestConnectionResponse{}
 
-	if err := TestIMAPConnection(a.IMAPHost, a.IMAPPort, a.Email, a.Password); err != nil {
+	if a.Provider == "mailpit" || a.IMAPHost == "" {
+		resp.IMAPStatus = "skip"
+	} else if err := TestIMAPConnection(a.IMAPHost, a.IMAPPort, a.Email, a.Password); err != nil {
 		resp.IMAPStatus = "error"
 		resp.Error = fmt.Sprintf("IMAP: %v", err)
 	} else {

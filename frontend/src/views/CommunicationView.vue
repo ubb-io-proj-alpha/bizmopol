@@ -1,8 +1,12 @@
 <script setup>
 import { ref, reactive, onMounted, inject, computed, watch } from "vue"
+import { useWebSocket } from "../composables/useWebSocket.js"
 
 const authFetch = inject("authFetch")
 const confirm = inject("confirm")
+const toast = inject("toast")
+const { onMessage } = useWebSocket()
+const emailQueueCount = ref(0)
 
 const activeTab = ref("inbox")
 const loading = ref(false)
@@ -87,6 +91,7 @@ const providerOptions = [
     { value: "gmail", label: "Gmail", icon: "mail", imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 587 },
     { value: "outlook", label: "Outlook / Hotmail", icon: "mail", imapHost: "outlook.office365.com", imapPort: 993, smtpHost: "smtp.office365.com", smtpPort: 587 },
     { value: "yahoo", label: "Yahoo Mail", icon: "mail", imapHost: "imap.mail.yahoo.com", imapPort: 993, smtpHost: "smtp.mail.yahoo.com", smtpPort: 587 },
+    { value: "mailpit", label: "Mailpit (Test)", icon: "science", imapHost: "mailpit", imapPort: 1143, smtpHost: "mailpit", smtpPort: 1025 },
     { value: "custom", label: "Custom IMAP/SMTP", icon: "dns", imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 587 },
 ]
 
@@ -172,6 +177,8 @@ async function syncInbox() {
             syncStatus.value = await res.json()
             if (syncStatus.value.error) {
                 formError.value = syncStatus.value.error
+            } else if (syncStatus.value.new_messages > 0) {
+                toast.show(`Zsynchronizowano ${syncStatus.value.new_messages} nowych wiadomości`, "success")
             }
         }
         await loadThreads()
@@ -207,6 +214,7 @@ async function sendCompose() {
             throw new Error(d.error || "Błąd wysyłki")
         }
         showComposeModal.value = false
+        toast.show("Wiadomość dodana do kolejki wysyłki", "info")
         Object.assign(composeForm, { contactId: "", to: "", subject: "", body: "", bodyHTML: "", templateId: "", signatureId: "", cc: "", threadId: "" })
         await loadThreads()
         await loadStats()
@@ -234,6 +242,7 @@ async function sendReply() {
         if (!res.ok) throw new Error("Błąd wysyłki odpowiedzi")
         showReply.value = false
         replyForm.body = ""
+        toast.show("Odpowiedź dodana do kolejki wysyłki", "info")
         await openThread(selectedThread.value)
         await loadStats()
     } catch (e) {
@@ -313,6 +322,7 @@ async function sendBulk() {
         })
         if (!res.ok) throw new Error("Błąd uruchomienia kampanii")
         showBulkModal.value = false
+        toast.show("Kampania uruchomiona — wysyłanie w toku", "info")
         Object.assign(bulkForm, { name: "", subject: "", body: "", templateId: "", contactIds: [], filterStatus: "" })
         activeTab.value = "bulk"
         await loadBulkJobs()
@@ -498,6 +508,22 @@ function jobStatusClass(s) {
     return map[s] || ""
 }
 
+function updateBulkJobProgress(data) {
+    const job = bulkJobs.value.find(j => j.id === data.bulk_job_id)
+    if (!job) {
+        loadBulkJobs()
+        return
+    }
+    job.sent_count = data.bulk_sent
+    job.failed_count = data.bulk_failed || 0
+    if (data.completed) {
+        job.status = "completed"
+        job.completed_at = new Date().toISOString()
+    } else {
+        job.status = "running"
+    }
+}
+
 function directionIcon(d) {
     return d === "inbound" ? "call_received" : "call_made"
 }
@@ -545,7 +571,7 @@ async function loadEmailAccount() {
                 accountForm.imapPort = data.imap_port || 993
                 accountForm.smtpHost = data.smtp_host || ""
                 accountForm.smtpPort = data.smtp_port || 587
-                showCustomServers.value = data.provider === "custom"
+                showCustomServers.value = data.provider === "custom" || data.provider === "mailpit"
             }
         }
     } catch (_) {} finally {
@@ -560,7 +586,7 @@ function onProviderChange() {
         accountForm.imapPort = provider.imapPort
         accountForm.smtpHost = provider.smtpHost
         accountForm.smtpPort = provider.smtpPort
-        showCustomServers.value = accountForm.provider === "custom"
+        showCustomServers.value = accountForm.provider === "custom" || accountForm.provider === "mailpit"
     }
 }
 
@@ -636,6 +662,32 @@ watch(filterDirection, () => { page.value = 1; loadThreads() })
 
 onMounted(async () => {
     await Promise.all([loadStats(), loadThreads(), loadTemplates(), loadSignatures(), loadEmailAccount()])
+    onMessage((msg) => {
+        if (msg.type === "email_sent" || msg.type === "email_send_failed") {
+            emailQueueCount.value = msg.data?.queue_remaining || 0
+            if (!msg.data?.bulk_job_id) {
+                toast.show(msg.message, msg.type === "email_sent" ? "success" : "error")
+                loadThreads()
+                loadStats()
+            }
+        } else if (msg.type === "bulk_progress") {
+            updateBulkJobProgress(msg.data)
+            loadThreads()
+            loadStats()
+        } else if (msg.type === "bulk_completed") {
+            updateBulkJobProgress(msg.data)
+            toast.show(msg.message, "success")
+            loadThreads()
+            loadStats()
+        } else if (msg.type === "email_sync_done") {
+            toast.show(msg.message, "success")
+            emailQueueCount.value = 0
+            loadThreads()
+            loadStats()
+        } else if (msg.type === "email_sync_failed") {
+            toast.show(msg.message, "error")
+        }
+    })
 })
 
 watch(activeTab, (tab) => {
@@ -700,6 +752,16 @@ watch(activeTab, (tab) => {
                     <div class="stat-value">{{ stats.bulk_jobs_run }}</div>
                     <div class="stat-label">Kampanie</div>
                 </div>
+            </div>
+        </div>
+
+        <div v-if="emailQueueCount > 0" class="queue-bar">
+            <div class="queue-bar-inner">
+                <span class="material-icons queue-icon spinning">sync</span>
+                <span>Wysyłanie wiadomości... ({{ emailQueueCount }} w kolejce)</span>
+            </div>
+            <div class="queue-progress">
+                <div class="queue-progress-fill"></div>
             </div>
         </div>
 
@@ -895,12 +957,14 @@ watch(activeTab, (tab) => {
                     </div>
                     <div class="bulk-progress">
                         <div class="progress-bar-wrap">
-                            <div class="progress-bar" :style="{ width: job.total_count > 0 ? (job.sent_count / job.total_count * 100) + '%' : '0%' }"></div>
+                            <div :class="['progress-bar', { 'progress-bar-animated': job.status === 'running' }]"
+                                 :style="{ width: job.total_count > 0 ? (job.sent_count / job.total_count * 100) + '%' : '0%' }"></div>
                         </div>
                         <div class="progress-stats">
                             <span class="prog-sent">✓ {{ job.sent_count }}</span>
-                            <span class="prog-fail">✗ {{ job.failed_count }}</span>
+                            <span class="prog-fail" v-if="job.failed_count > 0">✗ {{ job.failed_count }}</span>
                             <span class="prog-total">/ {{ job.total_count }}</span>
+                            <span v-if="job.status === 'running'" class="prog-pct">{{ Math.round(job.sent_count / job.total_count * 100) }}%</span>
                         </div>
                     </div>
                     <div class="bulk-dates">
@@ -1095,9 +1159,9 @@ watch(activeTab, (tab) => {
                     </div>
 
                     <div v-if="testResult" class="test-result">
-                        <div :class="['test-item', testResult.imap_status === 'ok' ? 'test-ok' : 'test-fail']">
-                            <span class="material-icons">{{ testResult.imap_status === 'ok' ? 'check_circle' : 'error' }}</span>
-                            IMAP (odbiór poczty): {{ testResult.imap_status === 'ok' ? 'Połączono' : 'Błąd' }}
+                        <div :class="['test-item', testResult.imap_status === 'ok' ? 'test-ok' : testResult.imap_status === 'skip' ? 'test-skip' : 'test-fail']">
+                            <span class="material-icons">{{ testResult.imap_status === 'ok' ? 'check_circle' : testResult.imap_status === 'skip' ? 'info' : 'error' }}</span>
+                            IMAP (odbiór poczty): {{ testResult.imap_status === 'ok' ? 'Połączono' : testResult.imap_status === 'skip' ? 'Niedostępny (Mailpit)' : 'Błąd' }}
                         </div>
                         <div :class="['test-item', testResult.smtp_status === 'ok' ? 'test-ok' : 'test-fail']">
                             <span class="material-icons">{{ testResult.smtp_status === 'ok' ? 'check_circle' : 'error' }}</span>
@@ -1340,6 +1404,13 @@ watch(activeTab, (tab) => {
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.queue-bar { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
+.queue-bar-inner { display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 0.88rem; margin-bottom: 8px; }
+.queue-icon { font-size: 1rem; color: #38bdf8; }
+.queue-progress { height: 4px; background: #334155; border-radius: 2px; overflow: hidden; }
+.queue-progress-fill { height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); border-radius: 2px; animation: progress-pulse 1.5s ease-in-out infinite; width: 40%; }
+@keyframes progress-pulse { 0%,100% { transform: translateX(-50%); } 50% { transform: translateX(200%); } }
+
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
 .stat-card {
     background: #1e293b; border: 1px solid #334155; border-radius: 12px;
@@ -1501,8 +1572,15 @@ watch(activeTab, (tab) => {
 .job-completed { background: #064e3b22; color: #34d399; border: 1px solid #064e3b; }
 .job-failed { background: #7f1d1d22; color: #f87171; border: 1px solid #7f1d1d; }
 .bulk-progress { margin-bottom: 12px; }
-.progress-bar-wrap { height: 6px; background: #334155; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
-.progress-bar { height: 100%; background: #38bdf8; border-radius: 4px; transition: width 0.4s; }
+.progress-bar-wrap { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+.progress-bar { height: 100%; background: #38bdf8; border-radius: 4px; transition: width 0.8s ease-in-out; }
+.progress-bar-animated {
+    background: linear-gradient(90deg, #38bdf8 0%, #818cf8 50%, #38bdf8 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.prog-pct { margin-left: auto; color: #38bdf8; font-weight: 600; }
 .progress-stats { display: flex; gap: 10px; font-size: 0.8rem; }
 .prog-sent { color: #34d399; }
 .prog-fail { color: #f87171; }
@@ -1693,6 +1771,7 @@ watch(activeTab, (tab) => {
 .test-item .material-icons { font-size: 1.1rem; }
 .test-ok { color: #34d399; }
 .test-fail { color: #f87171; }
+.test-skip { color: #94a3b8; }
 .test-error { color: #f87171; font-size: 0.82rem; margin-top: 6px; padding-top: 8px; border-top: 1px solid #334155; }
 
 .settings-info-card {

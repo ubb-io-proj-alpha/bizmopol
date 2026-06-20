@@ -105,11 +105,14 @@ func main() {
     pipelineHandler := handler.NewPipelineHandler(pipelineService)
 
     commRepo := repository.NewCommunicationRepository(db)
-    commService := service.NewCommunicationService(commRepo)
-    commHandler := handler.NewCommunicationHandler(commService)
 
     calRepo := repository.NewCalendarRepository(db)
     wsHub := ws.NewHub()
+
+    emailWorker := worker.NewEmailWorker(commRepo, wsHub)
+    commService := service.NewCommunicationService(commRepo, emailWorker)
+    commHandler := handler.NewCommunicationHandler(commService)
+
     zoomWorker := worker.NewZoomWorker(calRepo, wsHub)
     calService := service.NewCalendarService(calRepo, zoomWorker)
     calHandler := handler.NewCalendarHandler(calService)
@@ -185,6 +188,7 @@ func main() {
         comm.Use(middleware.JWTAuth(cfg.JWTSecret))
         {
             comm.GET("/stats", commHandler.GetStats)
+            comm.GET("/queue-status", commHandler.GetQueueStatus)
             comm.POST("/sync", commHandler.SyncInbox)
 
             threads := comm.Group("/threads")
@@ -267,6 +271,7 @@ func main() {
 
     workerCtx, workerCancel := context.WithCancel(context.Background())
     zoomWorker.Start(workerCtx)
+    emailWorker.Start(workerCtx)
 
     server := &http.Server{
         Addr:         ":" + cfg.Port,
@@ -298,6 +303,7 @@ func main() {
 
     workerCancel()
     zoomWorker.Wait()
+    emailWorker.Wait()
 
     slog.Info("Server exiting")
 }

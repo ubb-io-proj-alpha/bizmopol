@@ -7,9 +7,14 @@ services:
     environment:
       - DBType=sqlite
       - DBURL=/app/data/app.db
+
     volumes:
       - ./backend:/app
       - sqlite_storage:/app/data
+    depends_on:
+      - mailpit
+    networks:
+      - app_net
 
   frontend:
     build: ./frontend
@@ -21,6 +26,26 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+    networks:
+      - app_net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    environment:
+      - MP_SMTP_AUTH_ACCEPT_ANY=true
+      - MP_SMTP_AUTH_ALLOW_INSECURE=true
+      - MP_ENABLE_IMAP=true
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
+      - "1143:1143"   # IMAP
+    networks:
+      - app_net
 
 volumes:
   sqlite_storage:
+
+networks:
+  app_net:
+    driver: bridge

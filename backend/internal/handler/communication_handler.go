@@ -385,3 +385,8 @@ func (h *CommunicationHandler) TestConnection(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+func (h *CommunicationHandler) GetQueueStatus(c *gin.Context) {
+	count := h.svc.GetQueueStatus(c)
+	c.JSON(http.StatusOK, gin.H{"queued": count})
+}

@@ -52,6 +52,9 @@ type CommunicationRepository interface {
 	FindEmailAccountByUserID(ctx context.Context, userID string) (*model.EmailAccount, error)
 	UpdateEmailAccount(ctx context.Context, a *model.EmailAccount) error
 	DeleteEmailAccount(ctx context.Context, id string) error
+
+	FindContactEmail(ctx context.Context, contactID string) (string, error)
+	FindContactByID(ctx context.Context, contactID string) (*model.Contact, error)
 }
 
 type communicationRepository struct {
@@ -346,4 +349,19 @@ func (r *communicationRepository) UpdateEmailAccount(ctx context.Context, a *mod
 
 func (r *communicationRepository) DeleteEmailAccount(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Delete(&model.EmailAccount{}, "id = ?", id).Error
+}
+
+func (r *communicationRepository) FindContactEmail(ctx context.Context, contactID string) (string, error) {
+	var email string
+	err := r.db.WithContext(ctx).Model(&model.Contact{}).Select("email").Where("id = ?", contactID).Scan(&email).Error
+	return email, err
+}
+
+func (r *communicationRepository) FindContactByID(ctx context.Context, contactID string) (*model.Contact, error) {
+	var c model.Contact
+	err := r.db.WithContext(ctx).Where("id = ?", contactID).First(&c).Error
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }

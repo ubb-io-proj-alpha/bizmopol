@@ -32,8 +32,16 @@ type IMAPClient struct {
 
 func newIMAPClient(host string, port int) (*IMAPClient, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	tlsConfig := &tls.Config{ServerName: host}
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, tlsConfig)
+
+	var conn net.Conn
+	var err error
+
+	if port == 993 {
+		tlsConfig := &tls.Config{ServerName: host}
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, tlsConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", addr, 15*time.Second)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("IMAP connect failed: %w", err)
 	}
@@ -504,34 +512,48 @@ func SyncIMAPInbox(ctx context.Context, account *model.EmailAccount, repo reposi
 }
 
 func TestIMAPConnection(host string, port int, email, password string) error {
+	slog.Info("Testing IMAP connection", "host", host, "port", port, "email", email)
 	client, err := newIMAPClient(host, port)
 	if err != nil {
+		slog.Error("IMAP connection test failed", "error", err)
 		return err
 	}
 	defer client.logout()
 
+	if port == 1143 {
+		slog.Info("IMAP connection test OK (mailpit, no auth required)")
+		return nil
+	}
+
 	if err := client.login(email, password); err != nil {
+		slog.Error("IMAP auth test failed", "error", err)
 		return fmt.Errorf("authentication failed: %w", err)
 	}
+	slog.Info("IMAP connection test OK")
 	return nil
 }
 
 func TestSMTPConnection(host string, port int, email, password string) error {
+	slog.Info("Testing SMTP connection", "host", host, "port", port, "email", email)
 	addr := fmt.Sprintf("%s:%d", host, port)
 	if port == 465 {
 		tlsCfg := &tls.Config{ServerName: host}
 		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, tlsCfg)
 		if err != nil {
+			slog.Error("SMTP TLS connection test failed", "error", err)
 			return fmt.Errorf("SMTP TLS connection failed: %w", err)
 		}
 		conn.Close()
+		slog.Info("SMTP connection test OK (TLS)")
 		return nil
 	}
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
+		slog.Error("SMTP connection test failed", "error", err)
 		return fmt.Errorf("SMTP connection failed: %w", err)
 	}
 	conn.Close()
+	slog.Info("SMTP connection test OK")
 	return nil
 }
 
@@ -626,6 +648,8 @@ func ProviderDefaults(provider string) (imapHost string, imapPort int, smtpHost 
 		return "outlook.office365.com", 993, "smtp.office365.com", 587
 	case "yahoo":
 		return "imap.mail.yahoo.com", 993, "smtp.mail.yahoo.com", 587
+	case "mailpit":
+		return "mailpit", 1143, "mailpit", 1025
 	default:
 		return "", 993, "", 587
 	}

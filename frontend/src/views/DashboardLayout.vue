@@ -3,6 +3,7 @@ import { computed, provide } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import ToastNotification from "../components/ToastNotification.vue"
 import ConfirmModal from "../components/ConfirmModal.vue"
+import WsStatusDot from "../components/WsStatusDot.vue"
 
 const TOKEN_KEY = "jwt_token"
 const removeToken = () => localStorage.removeItem(TOKEN_KEY)
@@ -77,6 +78,9 @@ provide("authFetch", authFetch)
                 </ul>
             </nav>
             <div class="sidebar-footer">
+                <div class="ws-status-row">
+                    <WsStatusDot /> <span class="ws-label">WebSocket</span>
+                </div>
                 <button @click="logout" class="logout-link">
                     <span class="material-icons nav-icon">logout</span> Wyloguj się
                 </button>
@@ -149,6 +153,9 @@ provide("authFetch", authFetch)
     align-items: center;
     justify-content: center;
 }
+.ws-status-row { display: flex; align-items: center; gap: 6px; padding: 0 12px 12px; color: #64748b; font-size: 0.75rem; }
+.ws-label { opacity: 0.7; }
+
 .logout-link:hover { background: #ef4444; color: white; }
 
 .main-content {

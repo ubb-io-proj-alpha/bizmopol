@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, inject, computed, watch } from "vue"
+import { useWebSocket } from "../composables/useWebSocket.js"
 
 const authFetch = inject("authFetch")
 const toast = inject("toast")
@@ -380,60 +381,24 @@ watch(activeTab, (tab) => {
     if (tab === "zoom") loadZoomAccount()
 })
 
-let socket = null
-let reconnectTimer = null
+const { onMessage } = useWebSocket()
 
-function connectWebSocket() {
-    const token = localStorage.getItem("jwt_token")
-    if (!token) return
-
-    const proto = location.protocol === "https:" ? "wss:" : "ws:"
-    const wsUrl = `${proto}//${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`
-
-    socket = new WebSocket(wsUrl)
-
-    socket.onopen = () => {
-        console.log("[WS] connected")
-    }
-
-    socket.onmessage = (event) => {
-        try {
-            const msg = JSON.parse(event.data)
-            console.log("[WS] notification:", msg)
-
-            if (msg.type === "zoom_job_done") {
-                toast.show(msg.message, "success")
-                Promise.all([loadMonthEvents(), loadStats()])
-            } else if (msg.type === "zoom_job_failed") {
-                toast.show(msg.message, "error")
-            }
-        } catch (e) {
-            console.error("[WS] parse error:", e)
-        }
-    }
-
-    socket.onclose = () => {
-        console.log("[WS] disconnected, reconnecting in 5s...")
-        reconnectTimer = setTimeout(connectWebSocket, 5000)
-    }
-
-    socket.onerror = (err) => {
-        console.error("[WS] error:", err)
-        socket.close()
-    }
-}
+let removeWsListener = null
 
 onMounted(async () => {
     await Promise.all([loadStats(), loadMonthEvents(), loadZoomAccount()])
-    connectWebSocket()
+    removeWsListener = onMessage((msg) => {
+        if (msg.type === "zoom_job_done") {
+            toast.show(msg.message, "success")
+            Promise.all([loadMonthEvents(), loadStats()])
+        } else if (msg.type === "zoom_job_failed") {
+            toast.show(msg.message, "error")
+        }
+    })
 })
 
 onUnmounted(() => {
-    if (reconnectTimer) clearTimeout(reconnectTimer)
-    if (socket) {
-        socket.onclose = null
-        socket.close()
-    }
+    if (removeWsListener) removeWsListener()
 })
 </script>
 
