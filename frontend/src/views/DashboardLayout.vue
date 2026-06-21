@@ -1,6 +1,9 @@
 <script setup>
-import { computed } from "vue"
+import { computed, provide } from "vue"
 import { useRouter, useRoute } from "vue-router"
+import ToastNotification from "../components/ToastNotification.vue"
+import ConfirmModal from "../components/ConfirmModal.vue"
+import WsStatusDot from "../components/WsStatusDot.vue"
 
 const TOKEN_KEY = "jwt_token"
 const removeToken = () => localStorage.removeItem(TOKEN_KEY)
@@ -13,13 +16,17 @@ const currentView = computed(() => route.name || "dashboard")
 
 const authFetch = (url, options = {}) => {
     const token = getToken()
+    const headers = {
+        ...(options.headers || {}),
+        "Authorization": token ? `Bearer ${token}` : "",
+    }
+    if (!(options.body instanceof FormData)) {
+        headers["Content-Type"] = "application/json"
+    }
     return fetch(url, {
         ...options,
-        headers: {
-            ...(options.headers || {}),
-            "Authorization": token ? `Bearer ${token}` : "",
-            "Content-Type": "application/json",
-        },
+        cache: "no-store",
+        headers,
     })
 }
 
@@ -33,12 +40,9 @@ const navigate = (name) => router.push({ name })
 provide("authFetch", authFetch)
 </script>
 
-<script>
-import { provide } from "vue"
-export default {}
-</script>
-
 <template>
+    <ToastNotification>
+    <ConfirmModal>
     <div class="app-container">
         <aside class="sidebar">
             <div class="logo-section">
@@ -77,6 +81,9 @@ export default {}
                 </ul>
             </nav>
             <div class="sidebar-footer">
+                <div class="ws-status-row">
+                    <WsStatusDot /> <span class="ws-label">WebSocket</span>
+                </div>
                 <button @click="logout" class="logout-link">
                     <span class="material-icons nav-icon">logout</span> Wyloguj się
                 </button>
@@ -87,6 +94,8 @@ export default {}
             <router-view />
         </main>
     </div>
+    </ConfirmModal>
+    </ToastNotification>
 </template>
 
 <style scoped>
@@ -147,6 +156,9 @@ export default {}
     align-items: center;
     justify-content: center;
 }
+.ws-status-row { display: flex; align-items: center; gap: 6px; padding: 0 12px 12px; color: #64748b; font-size: 0.75rem; }
+.ws-label { opacity: 0.7; }
+
 .logout-link:hover { background: #ef4444; color: white; }
 
 .main-content {

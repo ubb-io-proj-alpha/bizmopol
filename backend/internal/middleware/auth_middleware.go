@@ -10,13 +10,16 @@ import (
 
 func JWTAuth(secret string) gin.HandlerFunc {
     return func(c *gin.Context) {
+        var tokenStr string
         header := c.GetHeader("Authorization")
-        if !strings.HasPrefix(header, "Bearer ") {
+        if strings.HasPrefix(header, "Bearer ") {
+            tokenStr = strings.TrimPrefix(header, "Bearer ")
+        } else if q := c.Query("token"); q != "" {
+            tokenStr = q
+        } else {
             c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
             return
         }
-
-        tokenStr := strings.TrimPrefix(header, "Bearer ")
         token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
             if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
                 return nil, jwt.ErrSignatureInvalid

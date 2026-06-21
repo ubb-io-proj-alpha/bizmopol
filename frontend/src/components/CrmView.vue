@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from "vue"
+import { ref, reactive, onMounted, computed, inject } from "vue"
 import { useRouter } from "vue-router"
 import { useTableQuery } from "../composables/useTableQuery.js"
 
@@ -8,6 +8,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const confirm = inject("confirm")
 
 const contacts = ref([])
 const total = ref(0)
@@ -237,7 +238,7 @@ async function saveContact() {
 }
 
 async function deleteContact(id) {
-    if (!confirm("Usunąć kontakt?")) return
+    if (!await confirm({ title: "Usuń kontakt", message: "Kontakt i cała historia zostaną trwale usunięte.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         const res = await props.authFetch("/api/v1/contacts/" + id, { method: "DELETE" })
         if (!res.ok && res.status !== 204) throw new Error("Błąd usuwania")
@@ -410,29 +411,35 @@ function getCustomValue(row, fieldId) {
                         :key="row.id"
                         :class="{ selected: selectedIds.has(row.id), 'dnd-row': row.dnd_active }"
                     >
-                        <td class="col-check">
-                            <input
-                                type="checkbox"
-                                :checked="selectedIds.has(row.id)"
-                                @change="toggleSelect(row.id)"
-                            />
+                        <td>
+                            <div class="col-check">
+                                <input
+                                    type="checkbox"
+                                    :checked="selectedIds.has(row.id)"
+                                    @change="toggleSelect(row.id)"
+                                />
+                            </div>
                         </td>
-                        <td class="name-cell">
-                            <span v-if="row.is_group" class="group-icon material-icons" title="Grupa/Firma">corporate_fare</span>
-                            <span v-if="row.dnd_active" class="dnd-icon material-icons" title="Do Not Disturb">do_not_disturb_on</span>
-                            {{ row.name }}
+                        <td>
+                            <div class="name-cell">
+                                <span v-if="row.is_group" class="group-icon material-icons" title="Grupa/Firma">corporate_fare</span>
+                                <span v-if="row.dnd_active" class="dnd-icon material-icons" title="Do Not Disturb">do_not_disturb_on</span>
+                                {{ row.name }}
+                            </div>
                         </td>
                         <td>{{ row.email }}</td>
                         <td>{{ row.phone }}</td>
                         <td>{{ row.company }}</td>
                         <td><span :class="['badge', statusClass(row.status)]">{{ statusLabel(row.status) }}</span></td>
-                        <td class="tags-cell">
-                            <span
-                                v-for="t in (row.tags || [])"
-                                :key="t.id"
-                                class="tag-chip-small"
-                                :style="{ background: t.color + '33', color: t.color, borderColor: t.color }"
-                            >{{ t.name }}</span>
+                        <td>
+                            <div class="tags-cell">
+                                <span
+                                    v-for="t in (row.tags || [])"
+                                    :key="t.id"
+                                    class="tag-chip-small"
+                                    :style="{ background: t.color + '33', color: t.color, borderColor: t.color }"
+                                >{{ t.name }}</span>
+                            </div>
                         </td>
                         <td>
                             <div class="score-cell">
@@ -445,24 +452,26 @@ function getCustomValue(row, fieldId) {
                         <td v-for="cf in visibleFields" :key="cf.id">
                             {{ getCustomValue(row, cf.id) }}
                         </td>
-                        <td class="actions-cell">
-                            <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
-                                <span class="material-icons">visibility</span>
-                            </button>
-                            <button class="btn-action btn-edit" @click="openEdit(row)" title="Edytuj">
-                                <span class="material-icons">edit</span>
-                            </button>
-                            <button
-                                class="btn-action"
-                                :class="row.dnd_active ? 'btn-dnd-active' : 'btn-dnd'"
-                                @click="openDndModal(row)"
-                                title="Do Not Disturb"
-                            >
-                                <span class="material-icons">do_not_disturb_on</span>
-                            </button>
-                            <button class="btn-action btn-delete" @click="deleteContact(row.id)" title="Usuń">
-                                <span class="material-icons">delete</span>
-                            </button>
+                        <td>
+                            <div class="actions-cell">
+                                <button class="btn-action btn-detail" @click="openDetail(row.id)" title="Szczegóły">
+                                    <span class="material-icons">visibility</span>
+                                </button>
+                                <button class="btn-action btn-edit" @click="openEdit(row)" title="Edytuj">
+                                    <span class="material-icons">edit</span>
+                                </button>
+                                <button
+                                    class="btn-action"
+                                    :class="row.dnd_active ? 'btn-dnd-active' : 'btn-dnd'"
+                                    @click="openDndModal(row)"
+                                    title="Do Not Disturb"
+                                >
+                                    <span class="material-icons">do_not_disturb_on</span>
+                                </button>
+                                <button class="btn-action btn-delete" @click="deleteContact(row.id)" title="Usuń">
+                                    <span class="material-icons">delete</span>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 </tbody>
