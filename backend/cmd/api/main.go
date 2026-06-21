@@ -23,7 +23,6 @@ import (
     "github.com/nentgroup/slog-prettylogger"
 )
 
-
 func initLogger(cfg *config.Config) {
     var h slog.Handler
 
@@ -62,6 +61,9 @@ func main() {
         &model.Pipeline{},
         &model.Stage{},
         &model.ContactStage{},
+        &model.Funnel{},
+        &model.Page{},
+        &model.FunnelVisit{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -89,6 +91,9 @@ func main() {
     pipelineRepo := repository.NewPipelineRepository(db)
     pipelineService := service.NewPipelineService(pipelineRepo, contactRepo)
     pipelineHandler := handler.NewPipelineHandler(pipelineService)
+    funnelRepo := repository.NewFunnelRepository(db)
+    funnelService := service.NewFunnelService(funnelRepo, contactService)
+    funnelHandler := handler.NewFunnelHandler(funnelService)
 
     r := gin.Default()
 
@@ -150,7 +155,26 @@ func main() {
             pipelines.PUT("/:id/stages/:stage_id", pipelineHandler.UpdateStage)
             pipelines.DELETE("/:id/stages/:stage_id", pipelineHandler.DeleteStage)
         }
+        funnels := api.Group("/funnels")
+        funnels.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            funnels.GET("/", funnelHandler.ListFunnels)
+            funnels.POST("/", funnelHandler.CreateFunnel)
+            funnels.GET("/:id", funnelHandler.GetFunnel)
+            funnels.PUT("/:id", funnelHandler.UpdateFunnel)
+            funnels.DELETE("/:id", funnelHandler.DeleteFunnel)
+            funnels.POST("/:id/pages", funnelHandler.CreatePage)
+            funnels.PUT("/pages/:pageId", funnelHandler.UpdatePage)
+            funnels.DELETE("/pages/:pageId", funnelHandler.DeletePage)
+        }
     }
+
+    public := r.Group("/public/v1")
+    {
+        public.POST("/funnels/submit", funnelHandler.Submit)
+    }
+
+    r.NoRoute(funnelHandler.ServeLivePage)
 
     server := &http.Server{
         Addr:         ":" + cfg.Port,
