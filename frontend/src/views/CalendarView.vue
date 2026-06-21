@@ -720,7 +720,7 @@ onUnmounted(() => {
 
 .btn-primary { padding: 10px 18px; background: #38bdf8; border: none; border-radius: 8px; color: #0f172a; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
 .btn-primary:hover { background: #7dd3fc; }
-.btn-primary .material-icons { font-size: 1rem; }
+.btn-primary .material-icons { font-size: 1.5rem; }
 .btn-secondary { padding: 10px 18px; background: transparent; border: 1px solid #475569; border-radius: 8px; color: #94a3b8; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
 .btn-secondary:hover { border-color: #f1f5f9; color: #f1f5f9; }
 

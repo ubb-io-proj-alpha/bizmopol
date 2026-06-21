@@ -343,7 +343,7 @@ func seedContactHistory(db *gorm.DB, contactID, status string, daysAgo int, user
 				action      string
 				description string
 				offsetDays  int
-			}{"call", "Próba kontaktu — brak odpowiedzi.", 5},
+			}{"call", "Próba kontaktu - brak odpowiedzi.", 5},
 			struct {
 				action      string
 				description string

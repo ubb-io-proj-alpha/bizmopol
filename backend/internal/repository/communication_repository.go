@@ -52,6 +52,7 @@ type CommunicationRepository interface {
 	FindEmailAccountByUserID(ctx context.Context, userID string) (*model.EmailAccount, error)
 	UpdateEmailAccount(ctx context.Context, a *model.EmailAccount) error
 	DeleteEmailAccount(ctx context.Context, id string) error
+	ListActiveEmailAccounts(ctx context.Context) ([]*model.EmailAccount, error)
 
 	FindContactEmail(ctx context.Context, contactID string) (string, error)
 	FindContactByID(ctx context.Context, contactID string) (*model.Contact, error)
@@ -142,7 +143,7 @@ func (r *communicationRepository) ListThreads(ctx context.Context, search, statu
 	offset := (page - 1) * pageSize
 
 	var threads []*model.EmailThread
-	err := q.Order("last_message_at DESC").Limit(pageSize).Offset(offset).Find(&threads).Error
+	err := q.Order("CASE WHEN unread_count > 0 THEN 0 ELSE 1 END, last_message_at DESC").Limit(pageSize).Offset(offset).Find(&threads).Error
 	return threads, total, err
 }
 
@@ -349,6 +350,12 @@ func (r *communicationRepository) UpdateEmailAccount(ctx context.Context, a *mod
 
 func (r *communicationRepository) DeleteEmailAccount(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Delete(&model.EmailAccount{}, "id = ?", id).Error
+}
+
+func (r *communicationRepository) ListActiveEmailAccounts(ctx context.Context) ([]*model.EmailAccount, error) {
+	var accounts []*model.EmailAccount
+	err := r.db.WithContext(ctx).Where("is_active = ? AND imap_host != ''", true).Find(&accounts).Error
+	return accounts, err
 }
 
 func (r *communicationRepository) FindContactEmail(ctx context.Context, contactID string) (string, error) {

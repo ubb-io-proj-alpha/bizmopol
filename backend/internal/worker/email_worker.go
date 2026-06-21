@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -47,12 +48,15 @@ type bulkProgress struct {
 	total  int
 }
 
+type SyncFunc func(ctx context.Context, userID string) (newMessages int, err error)
+
 type EmailWorker struct {
 	jobs     chan EmailJob
 	repo     repository.CommunicationRepository
 	hub      *ws.Hub
 	done     chan struct{}
 	sendFunc func(to []string, subject, body, bodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) error
+	syncFunc SyncFunc
 
 	bulkMu    sync.Mutex
 	bulkState map[string]*bulkProgress
@@ -70,6 +74,10 @@ func NewEmailWorker(repo repository.CommunicationRepository, hub *ws.Hub) *Email
 
 func (w *EmailWorker) SetSendFunc(fn func(to []string, subject, body, bodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) error) {
 	w.sendFunc = fn
+}
+
+func (w *EmailWorker) SetSyncFunc(fn SyncFunc) {
+	w.syncFunc = fn
 }
 
 func (w *EmailWorker) Enqueue(job EmailJob) {
@@ -113,6 +121,45 @@ func (w *EmailWorker) Start(ctx context.Context) {
 			}
 		}
 	}()
+
+	go w.imapPollLoop(ctx)
+}
+
+func (w *EmailWorker) imapPollLoop(ctx context.Context) {
+	time.Sleep(5 * time.Second)
+	slog.Info("EmailWorker: IMAP poll loop started")
+	for {
+		delay := 10 + rand.Intn(6)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(delay) * time.Second):
+		}
+
+		if w.syncFunc == nil {
+			continue
+		}
+
+		accounts, err := w.repo.ListActiveEmailAccounts(ctx)
+		if err != nil {
+			slog.Error("EmailWorker: failed to list accounts for IMAP poll", "error", err)
+			continue
+		}
+
+		for _, acc := range accounts {
+			if acc.IMAPHost == "" {
+				continue
+			}
+			newMsgs, err := w.syncFunc(ctx, acc.UserID)
+			if err != nil {
+				slog.Error("EmailWorker: IMAP poll sync failed", "user_id", acc.UserID, "error", err)
+				continue
+			}
+			if newMsgs > 0 {
+				slog.Info("EmailWorker: IMAP poll found new messages", "user_id", acc.UserID, "count", newMsgs)
+			}
+		}
+	}
 }
 
 func (w *EmailWorker) Wait() {
@@ -272,7 +319,7 @@ func (w *EmailWorker) trackBulkProgress(ctx context.Context, job EmailJob, succe
 		data["completed"] = true
 		w.hub.SendToUser(job.UserID, ws.Notification{
 			Type:    "bulk_completed",
-			Message: fmt.Sprintf("Kampania zakończona — %d wysłanych", sent),
+			Message: fmt.Sprintf("Kampania zakończona - %d wysłanych", sent),
 			Data:    data,
 		})
 	} else {

@@ -2,7 +2,7 @@
 #
 # Send test emails to Mailpit via SMTP (port 1025).
 # Usage: ./scripts/test-mailpit.sh [count]
-#   count — number of test emails to send (default: 3)
+#   count - number of test emails to send (default: 3)
 #
 # Mailpit must be running (docker compose up mailpit).
 # View emails at http://localhost:8025

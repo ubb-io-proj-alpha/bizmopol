@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"net"
+
 	"backend/internal/dto"
 	"backend/internal/model"
 	"backend/internal/repository"
@@ -71,6 +73,7 @@ func NewCommunicationService(repo repository.CommunicationRepository, w *worker.
 	}
 	if w != nil {
 		w.SetSendFunc(svc.sendSMTPWithConfig)
+		w.SetSyncFunc(svc.syncForWorker)
 	}
 	return svc
 }
@@ -165,6 +168,28 @@ func (s *communicationService) getEffectiveSMTPConfig(ctx context.Context, userI
 	return "", "", "", "", "", ""
 }
 
+type smtpLoginAuth struct {
+	username, password string
+}
+
+func (a *smtpLoginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	return "LOGIN", nil, nil
+}
+
+func (a *smtpLoginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	prompt := strings.ToLower(strings.TrimSpace(string(fromServer)))
+	if strings.Contains(prompt, "username") {
+		return []byte(a.username), nil
+	}
+	if strings.Contains(prompt, "password") {
+		return []byte(a.password), nil
+	}
+	return nil, fmt.Errorf("unexpected SMTP prompt: %s", prompt)
+}
+
 func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bodyHTML, inReplyTo, msgID, smtpHost, smtpPort, smtpUser, smtpPass, fromEmail, fromName string) error {
 	if smtpHost == "" {
 		slog.Warn("SMTP not configured, skipping actual email send")
@@ -246,9 +271,45 @@ func (s *communicationService) sendSMTPWithConfig(to []string, subject, body, bo
 		return smtp.SendMail(addr, nil, fromEmail, to, []byte(msg.String()))
 	}
 
-	auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
-	slog.Info("SMTP sending via STARTTLS", "addr", addr)
-	return smtp.SendMail(addr, auth, fromEmail, to, []byte(msg.String()))
+	slog.Info("SMTP sending via STARTTLS + AUTH LOGIN", "addr", addr)
+	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
+	if err != nil {
+		slog.Error("SMTP connect failed", "error", err)
+		return err
+	}
+	client, err := smtp.NewClient(conn, smtpHost)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	if err := client.StartTLS(&tls.Config{ServerName: smtpHost}); err != nil {
+		client.Close()
+		return fmt.Errorf("STARTTLS failed: %w", err)
+	}
+	if err := client.Auth(&smtpLoginAuth{smtpUser, smtpPass}); err != nil {
+		client.Close()
+		return fmt.Errorf("AUTH LOGIN failed: %w", err)
+	}
+	if err := client.Mail(fromEmail); err != nil {
+		client.Close()
+		return err
+	}
+	for _, r := range to {
+		if err := client.Rcpt(r); err != nil {
+			client.Close()
+			return err
+		}
+	}
+	w, err := client.Data()
+	if err != nil {
+		client.Close()
+		return err
+	}
+	_, err = w.Write([]byte(msg.String()))
+	w.Close()
+	client.Quit()
+	slog.Info("SMTP send complete (STARTTLS)", "to", to)
+	return err
 }
 
 func (s *communicationService) SendEmail(ctx context.Context, userID string, req dto.SendEmailRequest) (*dto.ThreadResponse, error) {
@@ -812,18 +873,6 @@ func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*d
 
 	result := SyncIMAPInbox(ctx, account, s.repo)
 
-	if s.emailWorker != nil {
-		nType := "email_sync_done"
-		message := fmt.Sprintf("Zsynchronizowano %d nowych wiadomości", result.NewMessages)
-		data := map[string]interface{}{"new_messages": result.NewMessages}
-		if result.Error != "" {
-			nType = "email_sync_failed"
-			message = result.Error
-			data["error"] = result.Error
-		}
-		s.emailWorker.Notify(userID, ws.Notification{Type: nType, Message: message, Data: data})
-	}
-
 	return &dto.SyncStatusResponse{
 		Connected:    result.Error == "",
 		LastSync:     account.LastSyncAt,
@@ -832,6 +881,28 @@ func (s *communicationService) SyncInbox(ctx context.Context, userID string) (*d
 		NewMessages:  result.NewMessages,
 		Error:        result.Error,
 	}, nil
+}
+
+func (s *communicationService) syncForWorker(ctx context.Context, userID string) (int, error) {
+	account, err := s.repo.FindEmailAccountByUserID(ctx, userID)
+	if err != nil || account == nil {
+		return 0, err
+	}
+
+	result := SyncIMAPInbox(ctx, account, s.repo)
+	if result.Error != "" {
+		return 0, fmt.Errorf("%s", result.Error)
+	}
+
+	if result.NewMessages > 0 && s.emailWorker != nil {
+		s.emailWorker.Notify(userID, ws.Notification{
+			Type:    "email_sync_done",
+			Message: fmt.Sprintf("Zsynchronizowano %d nowych wiadomości", result.NewMessages),
+			Data:    map[string]interface{}{"new_messages": result.NewMessages, "source": "auto_poll"},
+		})
+	}
+
+	return result.NewMessages, nil
 }
 
 func (s *communicationService) GetContactThreads(ctx context.Context, contactID string) ([]*dto.ThreadResponse, error) {
@@ -924,13 +995,17 @@ func (s *communicationService) UpdateEmailAccount(ctx context.Context, userID st
 	}
 
 	if req.Provider != "" {
+		providerChanged := req.Provider != a.Provider
 		a.Provider = req.Provider
 		imapHost, imapPort, smtpHost, smtpPort := ProviderDefaults(req.Provider)
-		if a.IMAPHost == "" || req.Provider != a.Provider {
+		if a.IMAPHost == "" || providerChanged {
 			a.IMAPHost = imapHost
 			a.IMAPPort = imapPort
 			a.SMTPHost = smtpHost
 			a.SMTPPort = smtpPort
+		}
+		if providerChanged {
+			a.LastSyncUID = 0
 		}
 	}
 	if req.Email != "" {

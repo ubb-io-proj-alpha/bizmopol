@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, inject, computed, watch } from "vue"
+import { ref, reactive, onMounted, onUnmounted, inject, computed, watch } from "vue"
 import { useWebSocket } from "../composables/useWebSocket.js"
 
 const authFetch = inject("authFetch")
@@ -70,6 +70,9 @@ const formError = ref("")
 
 const syncStatus = ref(null)
 const syncing = ref(false)
+const lastSyncAt = ref(null)
+const now = ref(Date.now())
+let nowTimer = null
 
 const emailAccount = ref(null)
 const accountLoading = ref(false)
@@ -89,9 +92,10 @@ const showCustomServers = ref(false)
 
 const providerOptions = [
     { value: "gmail", label: "Gmail", icon: "mail", imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 587 },
-    { value: "outlook", label: "Outlook / Hotmail", icon: "mail", imapHost: "outlook.office365.com", imapPort: 993, smtpHost: "smtp.office365.com", smtpPort: 587 },
+    { value: "outlook", label: "Outlook / Hotmail", icon: "mail", imapHost: "outlook.office365.com", imapPort: 993, smtpHost: "smtp-mail.outlook.com", smtpPort: 587 },
     { value: "yahoo", label: "Yahoo Mail", icon: "mail", imapHost: "imap.mail.yahoo.com", imapPort: 993, smtpHost: "smtp.mail.yahoo.com", smtpPort: 587 },
     { value: "mailpit", label: "Mailpit (Test)", icon: "science", imapHost: "mailpit", imapPort: 1143, smtpHost: "mailpit", smtpPort: 1025 },
+    { value: "fake-imap", label: "Fake IMAP (Dev)", icon: "bug_report", imapHost: "fake-imap", imapPort: 1993, smtpHost: "mailpit", smtpPort: 1025 },
     { value: "custom", label: "Custom IMAP/SMTP", icon: "dns", imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 587 },
 ]
 
@@ -175,6 +179,7 @@ async function syncInbox() {
         const res = await authFetch("/api/v1/communication/sync", { method: "POST" })
         if (res.ok) {
             syncStatus.value = await res.json()
+            lastSyncAt.value = new Date()
             if (syncStatus.value.error) {
                 formError.value = syncStatus.value.error
             } else if (syncStatus.value.new_messages > 0) {
@@ -322,7 +327,7 @@ async function sendBulk() {
         })
         if (!res.ok) throw new Error("Błąd uruchomienia kampanii")
         showBulkModal.value = false
-        toast.show("Kampania uruchomiona — wysyłanie w toku", "info")
+        toast.show("Kampania uruchomiona - wysyłanie w toku", "info")
         Object.assign(bulkForm, { name: "", subject: "", body: "", templateId: "", contactIds: [], filterStatus: "" })
         activeTab.value = "bulk"
         await loadBulkJobs()
@@ -488,6 +493,16 @@ function formatDateFull(d) {
     return new Date(d).toLocaleString("pl-PL")
 }
 
+function timeAgo(d) {
+    if (!d) return ""
+    const sec = Math.floor((now.value - new Date(d).getTime()) / 1000)
+    if (sec < 5) return "właśnie teraz"
+    if (sec < 60) return `${sec}s temu`
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min}min temu`
+    return formatDateFull(d)
+}
+
 function statusLabel(s) {
     const map = { open: "Otwarty", archived: "Archiwum", closed: "Zamknięty" }
     return map[s] || s
@@ -571,7 +586,7 @@ async function loadEmailAccount() {
                 accountForm.imapPort = data.imap_port || 993
                 accountForm.smtpHost = data.smtp_host || ""
                 accountForm.smtpPort = data.smtp_port || 587
-                showCustomServers.value = data.provider === "custom" || data.provider === "mailpit"
+                showCustomServers.value = data.provider === "custom" || data.provider === "mailpit" || data.provider === "fake-imap"
             }
         }
     } catch (_) {} finally {
@@ -680,7 +695,11 @@ onMounted(async () => {
             loadThreads()
             loadStats()
         } else if (msg.type === "email_sync_done") {
-            toast.show(msg.message, "success")
+            lastSyncAt.value = new Date()
+            const n = msg.data?.new_messages || 0
+            if (n > 0) {
+                toast.show(`Nowa poczta: ${n} ${n === 1 ? 'wiadomość' : 'wiadomości'}`, "info")
+            }
             emailQueueCount.value = 0
             loadThreads()
             loadStats()
@@ -688,6 +707,11 @@ onMounted(async () => {
             toast.show(msg.message, "error")
         }
     })
+    nowTimer = setInterval(() => { now.value = Date.now() }, 5000)
+})
+
+onUnmounted(() => {
+    if (nowTimer) clearInterval(nowTimer)
 })
 
 watch(activeTab, (tab) => {
@@ -709,12 +733,18 @@ watch(activeTab, (tab) => {
                     <span class="material-icons" style="font-size:0.8rem">circle</span>
                     {{ emailAccount.email }}
                 </span>
-                <button class="btn-sync" @click="syncInbox" :disabled="syncing || !emailAccount" :title="!emailAccount ? 'Configure email in Settings first' : 'Sync inbox'">
-                    <span class="material-icons" :class="{ spinning: syncing }">sync</span>
-                    <template v-if="syncing">Synchronizuję...</template>
-                    <template v-else-if="syncStatus && syncStatus.new_messages > 0">+{{ syncStatus.new_messages }} nowych</template>
-                    <template v-else>Synchronizuj</template>
-                </button>
+                <div class="sync-group">
+                    <button class="btn-sync" @click="syncInbox" :disabled="syncing || !emailAccount" :title="!emailAccount ? 'Configure email in Settings first' : 'Sync inbox'">
+                        <span class="material-icons" :class="{ spinning: syncing }">sync</span>
+                        <template v-if="syncing">Synchronizuję...</template>
+                        <template v-else-if="syncStatus && syncStatus.new_messages > 0">+{{ syncStatus.new_messages }} nowych</template>
+                        <template v-else>Synchronizuj</template>
+                    </button>
+                    <span v-if="lastSyncAt" class="last-sync-label">
+                        <span class="material-icons" style="font-size:0.75rem">schedule</span>
+                        {{ timeAgo(lastSyncAt) }}
+                    </span>
+                </div>
                 <button class="btn-bulk" @click="openBulk">
                     <span class="material-icons">send</span> Wyślij masowo
                 </button>
@@ -1377,28 +1407,31 @@ watch(activeTab, (tab) => {
 .subtitle { color: #94a3b8; font-size: 0.95rem; }
 .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+.header-actions .material-icons { font-size: 1.1rem; }
+.btn-primary, .btn-secondary, .btn-sync, .btn-bulk {
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; transition: 0.2s;
+    display: flex; align-items: center; gap: 6px; font-size: 0.85rem;
+    height: 38px; box-sizing: border-box; white-space: nowrap;
+}
 .btn-primary {
-    padding: 10px 18px; background: #38bdf8; border: none; border-radius: 8px;
-    color: #0f172a; font-weight: bold; cursor: pointer; transition: 0.2s;
-    display: flex; align-items: center; gap: 6px; font-size: 0.9rem;
+    background: #38bdf8; border: none; color: #0f172a; font-weight: bold;
 }
 .btn-primary:hover { background: #7dd3fc; }
-.btn-primary .material-icons { font-size: 1rem; }
 .btn-secondary {
-    padding: 10px 18px; background: transparent; border: 1px solid #475569;
-    border-radius: 8px; color: #94a3b8; cursor: pointer; transition: 0.2s; font-size: 0.9rem;
+    background: transparent; border: 1px solid #475569; color: #94a3b8;
 }
 .btn-secondary:hover { border-color: #f1f5f9; color: #f1f5f9; }
 .btn-sync {
-    padding: 10px 18px; background: #1e293b; border: 1px solid #334155;
-    border-radius: 8px; color: #94a3b8; cursor: pointer; transition: 0.2s;
-    display: flex; align-items: center; gap: 6px; font-size: 0.9rem;
+    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
 }
 .btn-sync:hover { border-color: #38bdf8; color: #38bdf8; }
+.sync-group { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.last-sync-label {
+    position: absolute; top: 100%; left: 0; font-size: 0.7rem; color: #64748b;
+    display: flex; align-items: center; gap: 3px; white-space: nowrap;
+}
 .btn-bulk {
-    padding: 10px 18px; background: #7c3aed; border: none; border-radius: 8px;
-    color: #ede9fe; font-weight: bold; cursor: pointer; transition: 0.2s;
-    display: flex; align-items: center; gap: 6px; font-size: 0.9rem;
+    background: #7c3aed; border: none; color: #ede9fe; font-weight: bold;
 }
 .btn-bulk:hover { background: #6d28d9; }
 .spinning { animation: spin 1s linear infinite; }
@@ -1690,7 +1723,7 @@ watch(activeTab, (tab) => {
 
 .connected-badge {
     display: flex; align-items: center; gap: 4px;
-    color: #34d399; font-size: 0.82rem; padding: 6px 12px;
+    color: #34d399; font-size: 0.6rem; padding: 10px 18px;
     background: #064e3b22; border: 1px solid #064e3b; border-radius: 8px;
 }
 .setup-dot {

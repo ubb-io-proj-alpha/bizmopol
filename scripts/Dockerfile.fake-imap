@@ -1,0 +1,4 @@
+FROM python:3.12-alpine
+WORKDIR /app
+COPY fake_imap_server.py .
+CMD ["python3", "-u", "fake_imap_server.py", "--port", "1993", "--inject", "5", "--auto-generate", "--auto-min", "5", "--auto-max", "60"]

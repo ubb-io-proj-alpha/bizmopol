@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -106,7 +107,19 @@ func (c *IMAPClient) readLiteral(size int) (string, error) {
 }
 
 func (c *IMAPClient) login(user, pass string) error {
-	tag, err := c.sendCommand(fmt.Sprintf("LOGIN %s %s", quoteIMAPString(user), quoteIMAPString(pass)))
+	// Try AUTHENTICATE PLAIN first (required by Outlook/Exchange)
+	plain := fmt.Sprintf("\x00%s\x00%s", user, pass)
+	encoded := base64.StdEncoding.EncodeToString([]byte(plain))
+	tag, err := c.sendCommand(fmt.Sprintf("AUTHENTICATE PLAIN %s", encoded))
+	if err == nil {
+		if _, err2 := c.readResponse(tag); err2 == nil {
+			slog.Info("IMAP auth OK via AUTHENTICATE PLAIN")
+			return nil
+		}
+	}
+
+	// Fall back to LOGIN
+	tag, err = c.sendCommand(fmt.Sprintf("LOGIN %s %s", quoteIMAPString(user), quoteIMAPString(pass)))
 	if err != nil {
 		return err
 	}
@@ -520,7 +533,7 @@ func TestIMAPConnection(host string, port int, email, password string) error {
 	}
 	defer client.logout()
 
-	if port == 1143 {
+	if port == 1993 {
 		slog.Info("IMAP connection test OK (mailpit, no auth required)")
 		return nil
 	}
@@ -645,11 +658,13 @@ func ProviderDefaults(provider string) (imapHost string, imapPort int, smtpHost 
 	case "gmail":
 		return "imap.gmail.com", 993, "smtp.gmail.com", 587
 	case "outlook", "hotmail":
-		return "outlook.office365.com", 993, "smtp.office365.com", 587
+		return "outlook.office365.com", 993, "smtp-mail.outlook.com", 587
 	case "yahoo":
 		return "imap.mail.yahoo.com", 993, "smtp.mail.yahoo.com", 587
 	case "mailpit":
 		return "mailpit", 1143, "mailpit", 1025
+	case "fake-imap":
+		return "fake-imap", 1993, "mailpit", 1025
 	default:
 		return "", 993, "", 587
 	}

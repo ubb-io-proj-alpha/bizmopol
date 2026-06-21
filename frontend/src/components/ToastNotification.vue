@@ -5,6 +5,7 @@ const toasts = ref([])
 let nextId = 0
 
 function show(message, type = "info", duration = 4000) {
+    if (toasts.value.some(t => t.message === message && !t.leaving)) return
     const id = nextId++
     toasts.value.push({ id, message, type, leaving: false })
     setTimeout(() => dismiss(id), duration)
