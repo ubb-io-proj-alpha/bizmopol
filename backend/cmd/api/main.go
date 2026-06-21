@@ -171,9 +171,10 @@ func main() {
 
     public := r.Group("/public/v1")
     {
-        public.GET("/funnels/resolve", funnelHandler.Resolve)
         public.POST("/funnels/submit", funnelHandler.Submit)
     }
+
+    r.NoRoute(funnelHandler.ServeLivePage)
 
     server := &http.Server{
         Addr:         ":" + cfg.Port,

@@ -14,7 +14,7 @@ type FunnelRepository interface {
     UpdateFunnel(ctx context.Context, f *model.Funnel) error
     DeleteFunnel(ctx context.Context, id string) error
     GetFunnel(ctx context.Context, id string) (*model.Funnel, error)
-    ListFunnels(ctx context.Context) ([]model.Funnel, error)
+    ListFunnels(ctx context.Context, offset, limit int) ([]model.Funnel, int64, error)
     FindByDomain(ctx context.Context, domain string) (*model.Funnel, error)
 
     CreatePage(ctx context.Context, p *model.Page) error
@@ -58,10 +58,22 @@ func (r *funnelRepository) GetFunnel(ctx context.Context, id string) (*model.Fun
     return &f, nil
 }
 
-func (r *funnelRepository) ListFunnels(ctx context.Context) ([]model.Funnel, error) {
+func (r *funnelRepository) ListFunnels(ctx context.Context, offset, limit int) ([]model.Funnel, int64, error) {
     var funnels []model.Funnel
-    err := r.db.WithContext(ctx).Preload("Pages").Find(&funnels).Error
-    return funnels, err
+    var totalCount int64
+
+    if err := r.db.WithContext(ctx).Model(&model.Funnel{}).Count(&totalCount).Error; err != nil {
+        return nil, 0, err
+    }
+
+    err := r.db.WithContext(ctx).
+        Preload("Pages").
+        Offset(offset).
+        Limit(limit).
+        Order("created_at DESC").
+        Find(&funnels).Error
+
+    return funnels, totalCount, err
 }
 
 func (r *funnelRepository) FindByDomain(ctx context.Context, domain string) (*model.Funnel, error) {

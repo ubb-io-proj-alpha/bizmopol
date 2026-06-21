@@ -1,0 +1,25 @@
+http://app.localhost {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+    handle /api/* {
+        reverse_proxy backend:8080
+    }
+    handle /public/* {
+        reverse_proxy backend:8080
+    }
+    handle {
+        reverse_proxy frontend:5173
+    }
+}
+
+*.bizmopol.localhost {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+    reverse_proxy backend:8080
+}
