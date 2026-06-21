@@ -2,6 +2,8 @@ services:
   backend:
     build: ./backend
     container_name: backend
+    ports:
+      - "8080:8080"
     environment:
       - DBType=sqlite
       - DBURL=/app/data/app.db
@@ -19,6 +21,8 @@ services:
   frontend:
     build: ./frontend
     container_name: frontend
+    ports:
+      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -67,6 +71,8 @@ services:
     depends_on:
       - backend
       - frontend
+    networks:
+      - app_net
 
 volumes:
   sqlite_storage:

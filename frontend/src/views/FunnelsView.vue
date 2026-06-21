@@ -370,8 +370,7 @@ async function onBuilderSaved() {
                 <div class="form-group">
                     <label>Subdomena</label>
                     <div class="subdomain-row">
-                        <input v-model="funnelForm.subdomain" placeholder="np. premium" class="subdomain-input" />
-                        <span class="subdomain-suffix">{{ baseDomain }}</span>
+                        <input v-model="funnelForm.subdomain" placeholder="np. premium.bizmopol.localhost" />
                     </div>
                 </div>
                 <div class="form-group">
