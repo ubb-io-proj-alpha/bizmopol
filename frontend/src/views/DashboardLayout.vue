@@ -16,14 +16,17 @@ const currentView = computed(() => route.name || "dashboard")
 
 const authFetch = (url, options = {}) => {
     const token = getToken()
+    const headers = {
+        ...(options.headers || {}),
+        "Authorization": token ? `Bearer ${token}` : "",
+    }
+    if (!(options.body instanceof FormData)) {
+        headers["Content-Type"] = "application/json"
+    }
     return fetch(url, {
         ...options,
         cache: "no-store",
-        headers: {
-            ...(options.headers || {}),
-            "Authorization": token ? `Bearer ${token}` : "",
-            "Content-Type": "application/json",
-        },
+        headers,
     })
 }
 

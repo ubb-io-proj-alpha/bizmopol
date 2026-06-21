@@ -76,6 +76,9 @@ func main() {
         &model.EmailAccount{},
         &model.CalendarEvent{},
         &model.ZoomAccount{},
+        &model.Document{},
+        &model.Signature{},
+        &model.SignatureLog{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -116,6 +119,10 @@ func main() {
     zoomWorker := worker.NewZoomWorker(calRepo, wsHub)
     calService := service.NewCalendarService(calRepo, zoomWorker)
     calHandler := handler.NewCalendarHandler(calService)
+
+    docRepo := repository.NewDocumentRepository(db)
+    docService := service.NewDocumentService(docRepo, contactRepo, wsHub)
+    docHandler := handler.NewDocumentHandler(docService)
 
     r := gin.Default()
 
@@ -264,6 +271,20 @@ func main() {
                 zoom.DELETE("/", calHandler.DeleteZoomAccount)
                 zoom.POST("/test", calHandler.TestZoomConnection)
             }
+        }
+
+        docs := api.Group("/documents")
+        docs.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            docs.GET("/", docHandler.List)
+            docs.POST("/", docHandler.Upload)
+            docs.GET("/:id", docHandler.Get)
+            docs.DELETE("/:id", docHandler.Delete)
+            docs.GET("/:id/download", docHandler.Download)
+            docs.GET("/:id/view", docHandler.View)
+            docs.POST("/:id/sign", docHandler.Sign)
+            docs.GET("/:id/audit-log", docHandler.AuditLog)
+            docs.GET("/:id/signatures/:sig_id/image", docHandler.SignatureImage)
         }
 
         api.GET("/ws", middleware.JWTAuth(cfg.JWTSecret), wsHub.HandleWS)
