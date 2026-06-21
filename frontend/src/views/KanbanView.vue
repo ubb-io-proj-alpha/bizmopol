@@ -3,6 +3,7 @@ import { ref, onMounted, inject } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 const authFetch = inject("authFetch")
+const confirm = inject("confirm")
 const route = useRoute()
 const router = useRouter()
 
@@ -134,7 +135,7 @@ async function saveStage() {
 }
 
 async function deleteStage(stageId) {
-    if (!confirm("Usunąć etap?")) return
+    if (!await confirm({ title: "Usuń etap", message: "Etap i przypisane kontakty zostaną usunięte z pipeline.", confirmLabel: "Usuń", variant: "danger" })) return
     try {
         await authFetch("/api/v1/pipelines/" + route.params.id + "/stages/" + stageId, { method: "DELETE" })
         await load()

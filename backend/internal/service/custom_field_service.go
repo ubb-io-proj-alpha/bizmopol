@@ -38,10 +38,13 @@ func toCFResponse(f *model.CustomField) dto.CustomFieldResponse {
 }
 
 func (s *customFieldService) List(ctx context.Context) ([]dto.CustomFieldResponse, error) {
+    debugLog("CustomField.List")
     fields, err := s.repo.List(ctx)
     if err != nil {
+        debugLogResult("CustomField.List", err)
         return nil, ErrInternal
     }
+    debugLogResult("CustomField.List", nil, "count", len(fields))
     result := make([]dto.CustomFieldResponse, 0, len(fields))
     for i := range fields {
         result = append(result, toCFResponse(&fields[i]))
@@ -50,6 +53,7 @@ func (s *customFieldService) List(ctx context.Context) ([]dto.CustomFieldRespons
 }
 
 func (s *customFieldService) Create(ctx context.Context, input dto.CustomFieldCreateRequest) (*dto.CustomFieldResponse, error) {
+    debugLog("CustomField.Create", "name", input.Name, "type", input.FieldType)
     ft := input.FieldType
     if ft == "" {
         ft = "text"
@@ -66,13 +70,16 @@ func (s *customFieldService) Create(ctx context.Context, input dto.CustomFieldCr
         SortOrder: input.SortOrder,
     }
     if err := s.repo.Create(ctx, f); err != nil {
+        debugLogResult("CustomField.Create", err)
         return nil, ErrInternal
     }
+    debugLogResult("CustomField.Create", nil, "id", f.ID)
     r := toCFResponse(f)
     return &r, nil
 }
 
 func (s *customFieldService) Update(ctx context.Context, id string, input dto.CustomFieldUpdateRequest) (*dto.CustomFieldResponse, error) {
+    debugLog("CustomField.Update", "id", id, "name", input.Name)
     f, err := s.repo.FindByID(ctx, id)
     if err != nil {
         return nil, ErrInternal
@@ -91,12 +98,17 @@ func (s *customFieldService) Update(ctx context.Context, id string, input dto.Cu
     }
     f.SortOrder = input.SortOrder
     if err := s.repo.Update(ctx, f); err != nil {
+        debugLogResult("CustomField.Update", err)
         return nil, ErrInternal
     }
+    debugLogResult("CustomField.Update", nil, "id", f.ID)
     r := toCFResponse(f)
     return &r, nil
 }
 
 func (s *customFieldService) Delete(ctx context.Context, id string) error {
-    return s.repo.Delete(ctx, id)
+    debugLog("CustomField.Delete", "id", id)
+    err := s.repo.Delete(ctx, id)
+    debugLogResult("CustomField.Delete", err)
+    return err
 }

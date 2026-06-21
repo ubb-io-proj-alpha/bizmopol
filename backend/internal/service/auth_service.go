@@ -35,6 +35,7 @@ func NewAuthService(r repository.UserRepository, jwtSecret string) AuthService {
 }
 
 func (s *authService) Register(ctx context.Context, input dto.RegisterRequest) (*dto.AuthResponse, error) {
+    debugLog("Auth.Register", "email", input.Email, "name", input.Name)
     existing, err := s.repo.FindByEmail(ctx, input.Email)
     if err != nil {
         return nil, ErrInternal
@@ -64,6 +65,7 @@ func (s *authService) Register(ctx context.Context, input dto.RegisterRequest) (
         return nil, ErrInternal
     }
 
+    debugLogResult("Auth.Register", nil, "user_id", user.ID)
     return &dto.AuthResponse{
         Token: token,
         User: dto.UserResponse{
@@ -77,6 +79,7 @@ func (s *authService) Register(ctx context.Context, input dto.RegisterRequest) (
 }
 
 func (s *authService) Login(ctx context.Context, input dto.LoginRequest) (*dto.AuthResponse, error) {
+    debugLog("Auth.Login", "email", input.Email)
     user, err := s.repo.FindByEmail(ctx, input.Email)
     if err != nil {
         return nil, ErrInternal
@@ -94,6 +97,7 @@ func (s *authService) Login(ctx context.Context, input dto.LoginRequest) (*dto.A
         return nil, ErrInternal
     }
 
+    debugLogResult("Auth.Login", nil, "user_id", user.ID)
     return &dto.AuthResponse{
         Token: token,
         User: dto.UserResponse{

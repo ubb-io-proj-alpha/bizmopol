@@ -7,9 +7,16 @@ services:
     environment:
       - DBType=sqlite
       - DBURL=/app/data/app.db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
       - sqlite_storage:/app/data
+    depends_on:
+      - mailpit
+      - fake-imap
+    networks:
+      - app_net
 
   frontend:
     build: ./frontend
@@ -21,6 +28,40 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+    networks:
+      - app_net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    environment:
+      - MP_SMTP_AUTH_ACCEPT_ANY=true
+      - MP_SMTP_AUTH_ALLOW_INSECURE=true
+      - MP_ENABLE_IMAP=true
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
+    networks:
+      - app_net
+
+  fake-imap:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.fake-imap
+    container_name: fake-imap
+    environment:
+      - MAILBOX_DIR=/data/mailbox
+    volumes:
+      - fake_mailbox:/data/mailbox
+    ports:
+      - "1993:1993"
+    networks:
+      - app_net
 
 volumes:
   sqlite_storage:
+  fake_mailbox:
+
+networks:
+  app_net:
+    driver: bridge
