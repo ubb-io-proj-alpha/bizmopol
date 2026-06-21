@@ -18,6 +18,7 @@ func SeedDatabase(db *gorm.DB) {
 	seedContacts(db)
 	seedPipelines(db)
 	seedCommunication(db)
+	seedFunnels(db)
 }
 
 func seedUsers(db *gorm.DB) {
@@ -384,6 +385,109 @@ func seedContactHistory(db *gorm.DB, contactID, status string, daysAgo int, user
 			CreatedAt:   t,
 		})
 	}
+}
+
+func seedFunnels(db *gorm.DB) {
+    var count int64
+    db.Model(&model.Funnel{}).Count(&count)
+    if count > 0 {
+        return
+    }
+
+    slog.Info("Seeding funnels and pages...")
+
+    funnelsData := []struct {
+        name         string
+        subdomain    string
+        customDomain string
+        pages        []struct {
+            name string
+            path string
+            html string
+            css  string
+        }
+    }{
+        {
+            name:      "Kampania Wiosenna 2026 - Lead Magnet",
+            subdomain: "wiosna2026.bizmopol.localhost",
+            pages: []struct {
+                name, path, html, css string
+            }{
+                {
+                    name: "Strona Zapisu (Opt-in)",
+                    path: "/",
+                    html: `<div class="container"><h1>Pobierz darmowy E-book!</h1><p>Zostaw maila, aby otrzymać poradnik.</p><button>Zapisz się</button></div>`,
+                    css:  `.container { text-align: center; font-family: sans-serif; padding: 50px; } button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; }`,
+                },
+                {
+                    name: "Strona Podziękowania (Thank you)",
+                    path: "/sukces",
+                    html: `<div class="container"><h1>Dziękujemy!</h1><p>E-book leci na Twoją skrzynkę.</p></div>`,
+                    css:  `.container { text-align: center; font-family: sans-serif; padding: 50px; color: green; }`,
+                },
+            },
+        },
+        {
+            name:         "Webinar B2B - Sprzedażowy",
+            subdomain:    "webinar-b2b",
+            customDomain: "www.moj-super-webinar.pl",
+            pages: []struct {
+                name, path, html, css string
+            }{
+                {
+                    name: "Rejestracja",
+                    path: "/",
+                    html: `<div class="hero"><h1>Zbuduj system CRM w 30 dni</h1><p>Webinar na żywo - wtorek, 18:00</p></div>`,
+                    css:  `.hero { background-color: #1a1a1a; color: #ffffff; padding: 100px 20px; text-align: center; }`,
+                },
+            },
+        },
+        {
+            name:      "Krótki Link - Bio Instagram",
+            subdomain: "linki.bizmopol.localhost",
+            pages: []struct {
+                name, path, html, css string
+            }{
+                {
+                    name: "Linktree Clone",
+                    path: "/jan-kowalski",
+                    html: `<div class="links"><a href="#">Mój Blog</a><a href="#">Mój Sklep</a><a href="#">Konsultacje</a></div>`,
+                    css:  `.links { display: flex; flex-direction: column; gap: 15px; max-width: 400px; margin: 40px auto; } .links a { display: block; padding: 15px; background: #eee; text-decoration: none; color: #333; text-align: center; border-radius: 8px; }`,
+                },
+            },
+        },
+    }
+
+    for _, fData := range funnelsData {
+        funnelID := uuid.NewString()
+        f := model.Funnel{
+            ID:           funnelID,
+            Name:         fData.name,
+            Subdomain:    fData.subdomain,
+            CustomDomain: fData.customDomain,
+        }
+
+        if err := db.Create(&f).Error; err != nil {
+            slog.Error("SeedDatabase: failed to create funnel", "name", f.Name, "error", err)
+            continue
+        }
+
+        for _, pData := range fData.pages {
+            p := model.Page{
+                ID:          uuid.NewString(),
+                FunnelID:    funnelID,
+                Name:        pData.name,
+                Path:        pData.path,
+                Structure:   `{"blocks": []}`,
+                HTMLContent: pData.html,
+                CSSContent:  pData.css,
+            }
+
+            if err := db.Create(&p).Error; err != nil {
+                slog.Error("SeedDatabase: failed to create page", "funnel", f.Name, "page", p.Name, "error", err)
+            }
+        }
+    }
 }
 
 func getAdminID(db *gorm.DB) string {

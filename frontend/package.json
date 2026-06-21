@@ -9,6 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "grapesjs": "^0.23.2",
+    "grapesjs-blocks-basic": "^1.0.2",
+    "grapesjs-blocks-flexbox": "^1.0.1",
+    "grapesjs-navbar": "^1.0.2",
+    "grapesjs-plugin-forms": "^2.0.6",
+    "grapesjs-preset-webpage": "^1.0.3",
     "vue": "^3.5.29",
     "vue-router": "^4.5.0"
   },

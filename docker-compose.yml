@@ -2,8 +2,6 @@ services:
   backend:
     build: ./backend
     container_name: backend
-    ports:
-      - "8080:8080"
     environment:
       - DBType=sqlite
       - DBURL=/app/data/app.db
@@ -21,8 +19,6 @@ services:
   frontend:
     build: ./frontend
     container_name: frontend
-    ports:
-      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -58,8 +54,24 @@ services:
     networks:
       - app_net
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
 volumes:
   sqlite_storage:
+  caddy_data:
+  caddy_config:
   fake_mailbox:
 
 networks:

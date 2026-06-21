@@ -311,13 +311,14 @@ func main() {
 
     public := r.Group("/public/v1")
     {
-        public.GET("/funnels/resolve", funnelHandler.Resolve)
         public.POST("/funnels/submit", funnelHandler.Submit)
     }
 
     workerCtx, workerCancel := context.WithCancel(context.Background())
     zoomWorker.Start(workerCtx)
     emailWorker.Start(workerCtx)
+
+    r.NoRoute(funnelHandler.ServeLivePage)
 
     server := &http.Server{
         Addr:         ":" + cfg.Port,
