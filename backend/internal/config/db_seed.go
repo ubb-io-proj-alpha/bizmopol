@@ -19,6 +19,36 @@ func SeedDatabase(db *gorm.DB) {
 	seedPipelines(db)
 	seedCommunication(db)
 	seedFunnels(db)
+	seedBooking(db)
+}
+
+func seedBooking(db *gorm.DB) {
+	var count int64
+	db.Model(&model.BookingSettings{}).Count(&count)
+	if count > 0 {
+		return
+	}
+
+	var admin model.User
+	if err := db.Where("email = ?", "admin@example.com").First(&admin).Error; err != nil {
+		slog.Error("SeedDatabase: booking owner (admin) not found", "error", err)
+		return
+	}
+
+	slog.Info("Seeding booking settings...")
+	settings := model.BookingSettings{
+		ID:           model.BookingSettingsID,
+		OwnerUserID:  admin.ID,
+		Enabled:      true,
+		WorkingDays:  "1,2,3,4,5",
+		StartMinutes: 540,
+		EndMinutes:   1020,
+		SlotMinutes:  30,
+		MeetingTitle: "Spotkanie: {name}",
+	}
+	if err := db.Create(&settings).Error; err != nil {
+		slog.Error("SeedDatabase: failed to create booking settings", "error", err)
+	}
 }
 
 func seedUsers(db *gorm.DB) {
