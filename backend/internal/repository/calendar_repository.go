@@ -18,6 +18,7 @@ type CalendarRepository interface {
 	ListEvents(ctx context.Context, userID, search, status, eventType, contactID string, from, to *time.Time, page, pageSize int) ([]*model.CalendarEvent, int64, error)
 	UpcomingEvents(ctx context.Context, userID string, limit int) ([]*model.CalendarEvent, error)
 	EventsByDate(ctx context.Context, userID string, date time.Time) ([]*model.CalendarEvent, error)
+	EventsInRange(ctx context.Context, userID string, from, to time.Time) ([]*model.CalendarEvent, error)
 	Stats(ctx context.Context, userID string) (map[string]int64, error)
 
 	CreateZoomAccount(ctx context.Context, a *model.ZoomAccount) error
@@ -114,6 +115,17 @@ func (r *calendarRepository) EventsByDate(ctx context.Context, userID string, da
 	var events []*model.CalendarEvent
 	err := r.db.WithContext(ctx).
 		Where("user_id = ? AND start_time >= ? AND start_time < ?", userID, startOfDay, endOfDay).
+		Order("start_time ASC").
+		Find(&events).Error
+	return events, err
+}
+
+// EventsInRange returns the user's non-cancelled events overlapping [from, to).
+// Overlap condition: start_time < to AND end_time > from. Used for booking collisions.
+func (r *calendarRepository) EventsInRange(ctx context.Context, userID string, from, to time.Time) ([]*model.CalendarEvent, error) {
+	var events []*model.CalendarEvent
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND status <> ? AND start_time < ? AND end_time > ?", userID, "cancelled", to, from).
 		Order("start_time ASC").
 		Find(&events).Error
 	return events, err

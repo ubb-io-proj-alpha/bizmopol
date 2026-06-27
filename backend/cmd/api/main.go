@@ -81,6 +81,7 @@ func main() {
         &model.Funnel{},
         &model.Page{},
         &model.FunnelVisit{},
+        &model.BookingSettings{},
     ); err != nil {
         slog.Error("Failed to migrate database", "error", err)
     }
@@ -129,6 +130,10 @@ func main() {
     funnelRepo := repository.NewFunnelRepository(db)
     funnelService := service.NewFunnelService(funnelRepo, contactService)
     funnelHandler := handler.NewFunnelHandler(funnelService)
+
+    bookingRepo := repository.NewBookingRepository(db)
+    bookingService := service.NewBookingService(bookingRepo, calRepo)
+    bookingHandler := handler.NewBookingHandler(bookingService)
 
     r := gin.Default()
 
@@ -307,12 +312,24 @@ func main() {
             funnels.PUT("/pages/:pageId", funnelHandler.UpdatePage)
             funnels.DELETE("/pages/:pageId", funnelHandler.DeletePage)
         }
+
+        booking := api.Group("/booking")
+        booking.Use(middleware.JWTAuth(cfg.JWTSecret))
+        {
+            booking.GET("/settings", bookingHandler.GetSettings)
+            booking.PUT("/settings", bookingHandler.UpdateSettings)
+        }
     }
 
     public := r.Group("/public/v1")
     {
         public.POST("/funnels/submit", funnelHandler.Submit)
+        public.GET("/booking/days", bookingHandler.PublicDays)
+        public.GET("/booking/slots", bookingHandler.PublicSlots)
+        public.POST("/booking", bookingHandler.PublicCreate)
     }
+
+    r.GET("/umow-spotkanie", bookingHandler.ServeBookingPage)
 
     workerCtx, workerCancel := context.WithCancel(context.Background())
     zoomWorker.Start(workerCtx)

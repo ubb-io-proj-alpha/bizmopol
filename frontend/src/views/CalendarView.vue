@@ -35,6 +35,23 @@ const zoomTesting = ref(false)
 const zoomTestResult = ref(null)
 const zoomForm = reactive({ accountId: "", clientId: "", clientSecret: "" })
 
+const bookingSettings = ref(null)
+const bookingLoading = ref(false)
+const bookingSaving = ref(false)
+const bookingError = ref("")
+const WEEKDAYS = [
+    { v: 1, l: "Pn" }, { v: 2, l: "Wt" }, { v: 3, l: "Śr" },
+    { v: 4, l: "Cz" }, { v: 5, l: "Pt" }, { v: 6, l: "Sb" }, { v: 0, l: "Nd" },
+]
+const bookingForm = reactive({
+    enabled: true,
+    workingDays: [1, 2, 3, 4, 5],
+    startTime: "09:00",
+    endTime: "17:00",
+    slotMinutes: 30,
+    meetingTitle: "Spotkanie: {name}",
+})
+
 const contacts = ref([])
 const contactSearch = ref("")
 
@@ -328,6 +345,61 @@ async function disconnectZoom() {
     } catch (e) { toast.show("Błąd rozłączania", "error") }
 }
 
+function minutesToTime(min) {
+    const h = Math.floor(min / 60), m = min % 60
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
+function timeToMinutes(t) {
+    const [h, m] = (t || "0:0").split(":").map(Number)
+    return (h || 0) * 60 + (m || 0)
+}
+function toggleWorkingDay(v) {
+    const i = bookingForm.workingDays.indexOf(v)
+    if (i === -1) bookingForm.workingDays.push(v)
+    else bookingForm.workingDays.splice(i, 1)
+}
+
+async function loadBookingSettings() {
+    bookingLoading.value = true
+    bookingError.value = ""
+    try {
+        const res = await authFetch("/api/v1/booking/settings")
+        if (res.ok) {
+            const d = await res.json()
+            bookingSettings.value = d
+            bookingForm.enabled = d.enabled
+            bookingForm.workingDays = (d.working_days && d.working_days.length) ? [...d.working_days] : []
+            bookingForm.startTime = minutesToTime(d.start_minutes)
+            bookingForm.endTime = minutesToTime(d.end_minutes)
+            bookingForm.slotMinutes = d.slot_minutes
+            bookingForm.meetingTitle = d.meeting_title || "Spotkanie: {name}"
+        }
+    } catch (_) {} finally { bookingLoading.value = false }
+}
+
+async function saveBookingSettings() {
+    bookingError.value = ""
+    if (bookingForm.workingDays.length === 0) { bookingError.value = "Wybierz przynajmniej jeden dzień."; return }
+    const startM = timeToMinutes(bookingForm.startTime)
+    const endM = timeToMinutes(bookingForm.endTime)
+    if (startM >= endM) { bookingError.value = "Godzina zakończenia musi być po godzinie rozpoczęcia."; return }
+    bookingSaving.value = true
+    try {
+        const payload = {
+            enabled: bookingForm.enabled,
+            working_days: bookingForm.workingDays,
+            start_minutes: startM,
+            end_minutes: endM,
+            slot_minutes: Number(bookingForm.slotMinutes),
+            meeting_title: bookingForm.meetingTitle,
+        }
+        const res = await authFetch("/api/v1/booking/settings", { method: "PUT", body: JSON.stringify(payload) })
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Błąd zapisu") }
+        bookingSettings.value = await res.json()
+        toast.show("Ustawienia rezerwacji zapisane", "success")
+    } catch (e) { bookingError.value = e.message; toast.show(e.message, "error") } finally { bookingSaving.value = false }
+}
+
 function formatTime(d) {
     if (!d) return ""
     const dt = new Date(d)
@@ -379,6 +451,7 @@ const selectedDayEvents = computed(() => {
 
 watch(activeTab, (tab) => {
     if (tab === "zoom") loadZoomAccount()
+    else if (tab === "booking") loadBookingSettings()
 })
 
 const { onMessage } = useWebSocket()
@@ -432,6 +505,9 @@ onUnmounted(() => {
             <button :class="['tab-btn', { active: activeTab === 'zoom' }]" @click="activeTab = 'zoom'">
                 <span class="material-icons">videocam</span> Zoom
                 <span v-if="!zoomAccount" class="setup-dot"></span>
+            </button>
+            <button :class="['tab-btn', { active: activeTab === 'booking' }]" @click="activeTab = 'booking'">
+                <span class="material-icons">event_available</span> Rezerwacje
             </button>
         </div>
 
@@ -595,6 +671,75 @@ onUnmounted(() => {
                             <li>Skopiuj <strong>Account ID</strong>, <strong>Client ID</strong> i <strong>Client Secret</strong></li>
                             <li>Dodaj uprawnienia (scopes): <code>meeting:write:admin</code>, <code>meeting:read:admin</code>, <code>user:read:admin</code></li>
                             <li>Aktywuj aplikację i wklej dane powyżej</li>
+                        </ul>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div v-if="activeTab === 'booking'" class="zoom-section">
+            <h2>Rezerwacje online</h2>
+            <p class="settings-desc">Udostępnij klientom stronę, na której sami umówią spotkanie. Każda rezerwacja tworzy wydarzenie w tym kalendarzu i blokuje zajętą godzinę.</p>
+
+            <div v-if="bookingLoading" class="loading">Ładowanie...</div>
+            <template v-else>
+                <div class="settings-form-card">
+                    <label class="toggle-label" style="margin-bottom:18px">
+                        <input type="checkbox" v-model="bookingForm.enabled" class="toggle-input" />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span class="toggle-text">Rezerwacje włączone</span>
+                    </label>
+
+                    <div class="form-group">
+                        <label>Dni dostępne na spotkania</label>
+                        <div class="weekday-row">
+                            <button v-for="d in WEEKDAYS" :key="d.v" type="button"
+                                :class="['weekday-chip', { active: bookingForm.workingDays.includes(d.v) }]"
+                                @click="toggleWorkingDay(d.v)">{{ d.l }}</button>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group flex-1">
+                            <label>Godzina od</label>
+                            <input v-model="bookingForm.startTime" type="time" />
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>Godzina do</label>
+                            <input v-model="bookingForm.endTime" type="time" />
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>Długość spotkania</label>
+                            <select v-model="bookingForm.slotMinutes">
+                                <option :value="15">15 min</option>
+                                <option :value="30">30 min</option>
+                                <option :value="60">60 min</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Tytuł tworzonego wydarzenia (&#123;name&#125; = imię klienta)</label>
+                        <input v-model="bookingForm.meetingTitle" placeholder="Spotkanie: {name}" />
+                    </div>
+
+                    <p v-if="bookingError" class="err-msg">{{ bookingError }}</p>
+
+                    <div class="settings-actions">
+                        <button class="btn-primary" @click="saveBookingSettings" :disabled="bookingSaving">
+                            <span class="material-icons">save</span> {{ bookingSaving ? 'Zapisywanie...' : 'Zapisz' }}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="settings-info-card">
+                    <span class="material-icons info-icon">link</span>
+                    <div>
+                        <h4>Link do strony rezerwacji</h4>
+                        <ul>
+                            <li>Dodaj na stronie lejka przycisk z blokiem <strong>„Umów spotkanie”</strong> w kreatorze (albo zwykły link).</li>
+                            <li>Przycisk prowadzi do ścieżki <code>/umow-spotkanie</code> w domenie lejka, np. <code>https://twoj-lejek.bizmopol.localhost/umow-spotkanie</code></li>
+                            <li>Klient wybiera wolny termin i klika „Umów się” — wydarzenie pojawi się w tym kalendarzu.</li>
                         </ul>
                     </div>
                 </div>
@@ -910,4 +1055,11 @@ onUnmounted(() => {
 
 .zoom-edit-info { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #94a3b8; font-size: 0.88rem; }
 .zoom-edit-text { color: #e2e8f0; }
+
+.weekday-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.weekday-chip { width: 44px; height: 40px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #94a3b8; cursor: pointer; font-size: 0.85rem; transition: 0.15s; }
+.weekday-chip:hover { border-color: #475569; }
+.weekday-chip.active { background: #0f2a4a; border-color: #38bdf8; color: #38bdf8; font-weight: 700; }
+.form-group select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; outline: none; font-size: 0.9rem; }
+.form-group select:focus { border-color: #38bdf8; }
 </style>

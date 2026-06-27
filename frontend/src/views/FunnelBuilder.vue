@@ -51,6 +51,14 @@ onMounted(() => {
         plugins: [pluginWebpage, pluginBlocks, pluginFlexbox, pluginNavbar, pluginForms]
     });
 
+    // Custom block: link button to the booking page served at /umow-spotkanie
+    editor.BlockManager.add('booking-button', {
+        label: 'Umów spotkanie',
+        category: 'Lejki',
+        media: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m0 16H5V10h14zm0-12H5V6h14z"/></svg>',
+        content: '<a href="/umow-spotkanie" style="display:inline-block;padding:14px 28px;background:#38bdf8;color:#0f172a;font-weight:700;text-decoration:none;border-radius:8px;font-family:sans-serif;">Umów spotkanie</a>',
+    });
+
     if (props.page && props.page.structure) {
         try {
             const projectData = typeof props.page.structure === 'string' 
