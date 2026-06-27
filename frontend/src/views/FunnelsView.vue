@@ -30,7 +30,7 @@ const pageFormError = ref("")
 const activeTab = ref("list")
 const activeEditorPage = ref(null)
 
-const baseDomain = import.meta.env.VITE_BASE_DOMAIN;
+const baseDomain = import.meta.env.VITE_BASE_DOMAIN || ".bizmopol.localhost";
 
 async function loadFunnels() {
     loading.value = true
@@ -370,7 +370,7 @@ async function onBuilderSaved() {
                 <div class="form-group">
                     <label>Subdomena</label>
                     <div class="subdomain-row">
-                        <input v-model="funnelForm.subdomain" placeholder="np. premium.bizmopol.localhost" />
+                        <input v-model="funnelForm.subdomain" placeholder="np. premium" />
                     </div>
                 </div>
                 <div class="form-group">
